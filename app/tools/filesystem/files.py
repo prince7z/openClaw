@@ -490,7 +490,7 @@ def append_file(path: str, content: str, encoding: str = "utf-8") -> dict[str, A
 
 
 @tool
-def create_file(path: str, exist_ok: bool = False) -> dict[str, Any]:
+def create_file(path: str, exist_ok: bool = False, **kwargs: Any) -> dict[str, Any]:
     """Create an empty file and any necessary parent directories.
 
     Args:
@@ -500,6 +500,14 @@ def create_file(path: str, exist_ok: bool = False) -> dict[str, Any]:
     Returns:
         The absolute file path that was created or already existed.
     """
+    if kwargs:
+        unexpected = ", ".join(f"'{k}'" for k in kwargs)
+        return make_result(
+            False,
+            None,
+            f"create_file got unexpected argument(s): {unexpected}. "
+            f"To write content to a file, please use the write_file tool instead."
+        )
     try:
         target = to_path(path)
         if target.exists():

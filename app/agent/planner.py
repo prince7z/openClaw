@@ -27,6 +27,7 @@ from app.tools.filesystem import (
     tree,
     write_file,
 )
+from app.tools.search import web_search
 
 logger = logging.getLogger("openclaw-agent")
 
@@ -50,6 +51,7 @@ tools = [
     search,
     tree,
     write_file,
+    web_search,
 ]
 
 # Instantiate ChatOpenAI model using configuration or defaults
