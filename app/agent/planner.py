@@ -28,11 +28,24 @@ from app.tools.filesystem import (
     write_file,
 )
 from app.tools.search import web_search
+from app.tools.gmail import (
+    gmail_search,
+    gmail_read,
+    gmail_send,
+    gmail_reply,
+    gmail_download_attachment
+)
 
 logger = logging.getLogger("openclaw-agent")
 
 # Define tools list for LLM binding and runner node execution
 tools = [
+    web_search,
+    gmail_search,
+    gmail_read,
+    gmail_send,
+    gmail_reply,
+    gmail_download_attachment,
     append_file,
     copy,
     create_directory,
@@ -51,7 +64,7 @@ tools = [
     search,
     tree,
     write_file,
-    web_search,
+    
 ]
 
 # Instantiate ChatOpenAI model using configuration or defaults

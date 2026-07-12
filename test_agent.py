@@ -31,28 +31,72 @@ except ImportError:
 from app.agent import graph
 
 
+from rich.console import Console
+console = Console()
+
+
 def run_agent(prompt: str):
-    print(f"Invoking agent with prompt: {prompt!r}\n")
+    console.print(f"[bold cyan]Invoking agent with prompt:[/bold cyan] {prompt!r}\n")
     
     inputs = {
         "messages": [("user", prompt)]
     }
-    config = {"configurable": {"thread_id": "test-session"}}
     
-    # Run the compiled ReAct graph
+    config = {"configurable": {"thread_id": "test-session"}}
     result = graph.invoke(inputs, config)
     
-    print("\n[bold green]--- Final Response ---[/]")
-    print(result.get("final_response", "(No final response content returned)"))
+    console.print()
+    from rich.panel import Panel
+    from rich.table import Table
     
-    print("\n[bold blue]--- Tool Executions Log ---[/]")
+    final_resp = result.get("final_response")
+    if final_resp:
+        console.print(Panel(
+            final_resp,
+            title="[bold green]📥 Agent Final Response[/bold green]",
+            border_style="green",
+            padding=(1, 2)
+        ))
+    else:
+        console.print(Panel(
+            "[dim italic]No final response text in state. Final message might have been a tool call or empty.[/]",
+            title="[bold red]⚠️ No Response[/bold red]",
+            border_style="red",
+            padding=(1, 2)
+        ))
+    
+    # Render Tool execution log as a styled Table
     tool_outputs = result.get("tool_outputs") or []
-    if not tool_outputs:
-        print("(No tools were executed)")
-    for idx, out in enumerate(tool_outputs, start=1):
-        print(f"[{idx}] Tool: [yellow]{out['tool']}[/]")
-        print(f"    Args: {out['args']}")
-        print(f"    Execution Time: {out['execution_time']:.3f}s")
+    if tool_outputs:
+        table = Table(
+            title="🛠  Tool Executions Log",
+            title_style="bold blue",
+            border_style="blue",
+            show_header=True,
+            header_style="bold cyan"
+        )
+        table.add_column("Step", justify="center", style="dim")
+        table.add_column("Tool Name", style="yellow")
+        table.add_column("Arguments", style="white")
+        table.add_column("Duration", justify="right", style="magenta")
+        
+        for idx, out in enumerate(tool_outputs, start=1):
+            # Format arguments to keep them readable
+            args_str = str(out['args'])
+            if len(args_str) > 80:
+                args_str = args_str[:77] + "..."
+                
+            table.add_row(
+                str(idx),
+                out['tool'],
+                args_str,
+                f"{out['execution_time']:.3f}s"
+            )
+        console.print()
+        console.print(table)
+    else:
+        console.print()
+        console.print("[dim italic](No tools were executed during this run)[/]")
 
 
 if __name__ == "__main__":
