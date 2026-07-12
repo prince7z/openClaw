@@ -8,6 +8,10 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Reconfigure stdout to handle unicode prints safely on Windows terminal
+if sys.platform.startswith("win"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+
 # Load local environment variables from .env file
 env_path = Path(__file__).resolve().parent / ".env"
 if env_path.exists():
@@ -57,7 +61,7 @@ if __name__ == "__main__":
         "prompt", 
         type=str, 
         nargs="?", 
-        default="in cuurent directory you will find report file wht is itthe",
+        default="search about prince sahu and then save it in form of md file in the d:/princesahu",
         help="The query/instruction to send to the agent."
     )
     args = parser.parse_args()

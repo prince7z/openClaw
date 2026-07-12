@@ -13,6 +13,11 @@ class Settings:
 	telegram_mode: str = os.getenv("TELEGRAM_MODE", "polling").strip().lower()
 	telegram_webhook_secret: str | None = os.getenv("TELEGRAM_WEBHOOK_SECRET")
 	telegram_webhook_path: str = os.getenv("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook")
+	tavily_api_key: str | None = os.getenv("TAVILY_API_KEY")
+	qdrant_url: str = os.getenv("QDRANT_URL", "http://localhost:6333")
+	qdrant_api_key: str | None = os.getenv("QDRANT_API_KEY")
+	infinity_url: str = os.getenv("INFINITY_URL", "http://localhost:7997")
+	google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback")
 
 
 settings = Settings()
