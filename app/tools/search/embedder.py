@@ -31,7 +31,7 @@ async def generate_embeddings(request_id: str, texts: list[str]) -> list[list[fl
     endpoints = ["/v1/embeddings", "/embeddings"]
     response = None
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=3.0) as client:
         for path in endpoints:
             url = f"{Infinity_url.rstrip('/')}{path}"
             payload = {

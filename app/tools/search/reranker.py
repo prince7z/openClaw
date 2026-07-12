@@ -67,7 +67,7 @@ async def rerank_chunks(
     if Infinity_url:
         # Try both standard /rerank and /v1/rerank endpoints
         endpoints = ["/v1/rerank", "/rerank"]
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:
             for path in endpoints:
                 url = f"{Infinity_url.rstrip('/')}{path}"
                 payload = {
