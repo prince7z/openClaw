@@ -8,6 +8,7 @@ from app.gateway.telegram.parser import parse_update
 logger = logging.getLogger(__name__)
 
 
+import asyncio
 import html
 from app.agent import graph
 
@@ -161,6 +162,44 @@ class TelegramMessageHandler:
 		}
 		config = {"configurable": {"thread_id": f"tg-{update.effective_chat.id}"}}
 		
+		# Setup Telegram callback query events store for human approval
+		bot_data = context.application.bot_data
+		if "pending_approvals" not in bot_data:
+			bot_data["pending_approvals"] = {}
+			
+		chat_id = update.effective_chat.id
+		approval_event = asyncio.Event()
+		bot_data["pending_approvals"][chat_id] = {
+			"event": approval_event,
+			"decision": False
+		}
+		
+		async def telegram_approval_callback(session_name: str, action: str, danger_reason: str) -> bool:
+			from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+			keyboard = [
+				[
+					InlineKeyboardButton("✅ Approve", callback_data=f"approve_{chat_id}"),
+					InlineKeyboardButton("❌ Deny", callback_data=f"deny_{chat_id}")
+				]
+			]
+			reply_markup = InlineKeyboardMarkup(keyboard)
+			
+			prompt = (
+				f"⚠️ <b>Dangerous Browser Action Warning!</b>\n\n"
+				f"• <b>Session:</b> <code>{session_name}</code>\n"
+				f"• <b>Action:</b> <code>{action}</code>\n"
+				f"• <b>Reason:</b> {danger_reason}\n\n"
+				f"Do you want to allow this action?"
+			)
+			approval_event.clear()
+			await message.reply_text(prompt, reply_markup=reply_markup, parse_mode="HTML")
+			await approval_event.wait()
+			return bot_data["pending_approvals"][chat_id]["decision"]
+			
+		from app.tools.browser.executor import register_approval_callback
+		loop = asyncio.get_running_loop()
+		register_approval_callback(telegram_approval_callback, loop)
+		
 		executed_tools = []
 		final_response = None
 		
@@ -211,5 +250,37 @@ class TelegramMessageHandler:
 			logger.exception("Error during Telegram agent execution:")
 			await status_message.edit_text(
 				f"❌ <b>An error occurred while running the pipeline:</b>\n<code>{html.escape(str(exc))}</code>",
+				parse_mode="HTML"
+			)
+		finally:
+			register_approval_callback(None)
+			bot_data["pending_approvals"].pop(chat_id, None)
+
+	async def handle_callback_query(
+		self, update: Update, context: ContextTypes.DEFAULT_TYPE
+	) -> None:
+		query = update.callback_query
+		if not query:
+			return
+		await query.answer()
+		
+		data = query.data
+		if not data or "_" not in data:
+			return
+			
+		action, chat_id_str = data.split("_", 1)
+		try:
+			chat_id = int(chat_id_str)
+		except ValueError:
+			return
+			
+		pending = context.application.bot_data.get("pending_approvals", {})
+		if chat_id in pending:
+			pending[chat_id]["decision"] = (action == "approve")
+			pending[chat_id]["event"].set()
+			
+			decision_text = "✅ Approved" if action == "approve" else "❌ Denied"
+			await query.edit_message_text(
+				text=query.message.text + f"\n\n<b>Decision:</b> {decision_text}",
 				parse_mode="HTML"
 			)

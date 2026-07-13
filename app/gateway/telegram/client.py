@@ -25,6 +25,10 @@ class TelegramGateway:
             self.application.add_handler(
                 MessageHandler(filters.ALL, self.message_handler.handle_message)
             )
+            from telegram.ext import CallbackQueryHandler
+            self.application.add_handler(
+                CallbackQueryHandler(self.message_handler.handle_callback_query)
+            )
 
     def is_configured(self) -> bool:
         return self.application is not None
