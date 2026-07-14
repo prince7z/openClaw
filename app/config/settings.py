@@ -18,6 +18,7 @@ class Settings:
 	qdrant_api_key: str | None = os.getenv("QDRANT_API_KEY")
 	infinity_url: str = os.getenv("INFINITY_URL", "http://localhost:7997")
 	google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback")
+	sqlite_db_path: str = os.getenv("SQLITE_DB_PATH", "openclaw.db")
 
 
 settings = Settings()

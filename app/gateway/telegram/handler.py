@@ -153,13 +153,40 @@ class TelegramMessageHandler:
 						error = res.get("error") or "Unknown error"
 						await message.reply_text(f"❌ Authentication failed:\n{error}")
 			return
+		# Handle /end command to archive the conversation context
+		if parsed.text and parsed.text.strip().lower() == "/end":
+			status_message = await message.reply_text("📝 <i>Archiving conversation, please wait...</i>", parse_mode="HTML")
+			from app.conversation.manager import ConversationManager
+			manager = ConversationManager()
+			try:
+				result = await manager.end(update.effective_chat.id)
+				title = result["title"]
+				summary = result["summary"]
+				response_text = (
+					f"✅ <b>Conversation Successfully Archived</b>\n\n"
+					f"📌 <b>Title:</b> {html.escape(title)}\n"
+					f"📖 <b>Summary:</b> {html.escape(summary)}\n\n"
+					f"<i>Active conversation context deleted. Start typing to begin a new thread!</i>"
+				)
+				await status_message.edit_text(response_text, parse_mode="HTML")
+			except Exception as exc:
+				logger.error(f"Failed to end conversation: {exc}")
+				await status_message.edit_text(f"❌ <b>Failed to end conversation:</b>\n<code>{html.escape(str(exc))}</code>", parse_mode="HTML")
+			return
 
 		# Handle agent enquiry/query
 		status_message = await message.reply_text("🤖 <i>Agent is initializing...</i>", parse_mode="HTML")
 		
-		inputs = {
-			"messages": [("user", parsed.text)]
-		}
+		# Load state and append user message in memory
+		from app.conversation.manager import ConversationManager
+		conv_manager = ConversationManager()
+		from langchain_core.messages import HumanMessage
+		
+		state = await conv_manager.append_user_message(
+			chat_id=update.effective_chat.id,
+			message=HumanMessage(content=parsed.text)
+		)
+		
 		config = {"configurable": {"thread_id": f"tg-{update.effective_chat.id}"}}
 		
 		# Setup Telegram callback query events store for human approval
@@ -204,8 +231,17 @@ class TelegramMessageHandler:
 		final_response = None
 		
 		try:
-			async for event in graph.astream(inputs, config):
+			# Stream the stateless graph execution while updating the state dictionary in real-time
+			async for event in graph.astream(state, config):
 				for node_name, node_output in event.items():
+					# Merge node outputs into the local state
+					for key, val in node_output.items():
+						if key == "messages":
+							from langgraph.graph.message import add_messages
+							state["messages"] = add_messages(state.get("messages") or [], val)
+						else:
+							state[key] = val
+
 					if node_name == "tools":
 						# Update cumulative logs
 						tool_outputs = node_output.get("tool_outputs") or []
@@ -230,7 +266,7 @@ class TelegramMessageHandler:
 							final_response = node_output["final_response"]
 
 			# Format final response and tool logs report
-			escaped_resp = html.escape(final_response or "(No response content returned)")
+			escaped_resp = final_response or "(No response content returned)"
 			
 			tool_log = ""
 			if executed_tools:
@@ -245,6 +281,9 @@ class TelegramMessageHandler:
 
 			final_msg = f"{escaped_resp}{tool_log}"
 			await status_message.edit_text(final_msg, parse_mode="HTML")
+			
+			# Save the finalized state block exactly once on successful execution
+			await conv_manager.save(update.effective_chat.id, state)
 			
 		except Exception as exc:
 			logger.exception("Error during Telegram agent execution:")

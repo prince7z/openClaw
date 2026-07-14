@@ -27,6 +27,10 @@ telegram_gateway = TelegramGateway()
 async def lifespan(app: FastAPI):
 	app.state.telegram_gateway = telegram_gateway
 
+	# Run SQLite migrations on application startup
+	from app.database.sqlite.migrations import run_migrations
+	await run_migrations()
+
 	if telegram_gateway.is_configured():
 		if settings.telegram_mode == "polling":
 			await telegram_gateway.start_polling()
