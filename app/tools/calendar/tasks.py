@@ -1,6 +1,6 @@
 """Google Tasks tools implementation."""
 
-from typing import Any
+from typing import Any, Literal
 from langchain.tools import tool
 
 from app.tools.calendar.executor import execute_calendar_request
@@ -176,7 +176,7 @@ def _api_delete_task(
     return response.model_dump()
 
 
-@tool("calendar.list_tasks")
+# Internal helper function, not exposed as tool
 def calendar_list_tasks(
     limit: int = 15,
     tasklist_id: str = "@default"
@@ -204,106 +204,90 @@ def calendar_list_tasks(
     )
 
 
-@tool("calendar.create_task")
-def calendar_create_task(
-    title: str,
-    notes: str | None = None,
-    due: str | None = None,
-    tasklist_id: str = "@default"
+
+
+
+@tool("calendar.manage_task")
+def manage_task(
+    action: Literal["create", "update", "delete"],
+    task_id: str | None = None,
+    task: dict | None = None,
 ) -> dict[str, Any]:
-    """Create a new task in a tasks list.
+    """Create, update, or delete tasks."""
+    try:
+        if action == "create":
+            if not task:
+                return {"success": False, "error": "task dictionary is required for create action", "data": None}
+            title = task.get("title")
+            if not title:
+                return {"success": False, "error": "title is required in task dictionary for create action", "data": None}
+            
+            notes = task.get("notes")
+            due = task.get("due")
+            
+            details = {
+                "Task Title": title,
+                "Tasklist ID": "@default",
+                "Due Date": due or "None"
+            }
+            return execute_calendar_request(
+                "Task",
+                details,
+                "tasks",
+                _api_create_task,
+                title,
+                notes,
+                due,
+                "@default"
+            )
 
-    Args:
-        title: The title/subject of the task.
-        notes: Optional details or notes for the task.
-        due: Optional RFC3339 date-time string indicating when the task is due (e.g. '2026-07-13T12:00:00Z').
-        tasklist_id: The ID of the task list. Defaults to '@default'.
+        elif action == "update":
+            if not task_id:
+                return {"success": False, "error": "task_id is required for update action", "data": None}
+            if not task:
+                return {"success": False, "error": "task dictionary is required for update action", "data": None}
+            
+            title = task.get("title")
+            notes = task.get("notes")
+            status = task.get("status")
+            due = task.get("due")
+            
+            details = {
+                "Task ID": task_id,
+                "Tasklist ID": "@default",
+                "Update Title": title or "No Change",
+                "Update Status": status or "No Change"
+            }
+            return execute_calendar_request(
+                "Task",
+                details,
+                "tasks",
+                _api_update_task,
+                task_id,
+                title,
+                notes,
+                status,
+                due,
+                "@default"
+            )
 
-    Returns:
-        A dict containing success state and created Task details.
-    """
-    details = {
-        "Task Title": title,
-        "Tasklist ID": tasklist_id,
-        "Due Date": due or "None"
-    }
-    return execute_calendar_request(
-        "Task",
-        details,
-        "tasks",
-        _api_create_task,
-        title,
-        notes,
-        due,
-        tasklist_id
-    )
+        elif action == "delete":
+            if not task_id:
+                return {"success": False, "error": "task_id is required for delete action", "data": None}
+            details = {
+                "Task ID": task_id,
+                "Tasklist ID": "@default"
+            }
+            return execute_calendar_request(
+                "Task",
+                details,
+                "tasks",
+                _api_delete_task,
+                task_id,
+                "@default"
+            )
 
-
-@tool("calendar.update_task")
-def calendar_update_task(
-    task_id: str,
-    title: str | None = None,
-    notes: str | None = None,
-    status: str | None = None,
-    due: str | None = None,
-    tasklist_id: str = "@default"
-) -> dict[str, Any]:
-    """Update details or status of an existing task (e.g., mark as completed).
-
-    Args:
-        task_id: The unique ID of the task to update.
-        title: Optional updated title/subject.
-        notes: Optional updated details.
-        status: Optional updated status ('needsAction' or 'completed').
-        due: Optional updated due date in RFC3339 format.
-        tasklist_id: The ID of the task list. Defaults to '@default'.
-
-    Returns:
-        A dict containing success state and updated Task details.
-    """
-    details = {
-        "Task ID": task_id,
-        "Tasklist ID": tasklist_id,
-        "Update Title": title or "No Change",
-        "Update Status": status or "No Change"
-    }
-    return execute_calendar_request(
-        "Task",
-        details,
-        "tasks",
-        _api_update_task,
-        task_id,
-        title,
-        notes,
-        status,
-        due,
-        tasklist_id
-    )
-
-
-@tool("calendar.delete_task")
-def calendar_delete_task(
-    task_id: str,
-    tasklist_id: str = "@default"
-) -> dict[str, Any]:
-    """Delete a task from a tasks list.
-
-    Args:
-        task_id: The unique ID of the task to delete.
-        tasklist_id: The ID of the task list. Defaults to '@default'.
-
-    Returns:
-        A dict containing success state.
-    """
-    details = {
-        "Task ID": task_id,
-        "Tasklist ID": tasklist_id
-    }
-    return execute_calendar_request(
-        "Task",
-        details,
-        "tasks",
-        _api_delete_task,
-        task_id,
-        tasklist_id
-    )
+        else:
+            return {"success": False, "error": f"Unsupported action: {action}", "data": None}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "data": None}

@@ -13,6 +13,10 @@ logging.basicConfig(
     handlers=[RichHandler(rich_tracebacks=True, markup=True)]
 )
 
+# Suppress noisy HTTP requests logs from httpx and httpcore
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger("openclaw-agent")
 logger.info("Initializing OpenClaw agent module...")
 

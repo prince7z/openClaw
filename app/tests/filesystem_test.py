@@ -16,24 +16,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.tools.filesystem import (  # noqa: E402
-    append_file,
-    copy,
-    create_directory,
-    create_file,
-    current_directory,
-    delete,
-    exists,
-    find,
-    glob,
-    list_directory,
-    metadata,
-    move,
     read_file,
-    read_multiple,
-    rename,
-    search,
-    tree,
     write_file,
+    manage_file,
+    list_files,
+    search_files,
 )
 
 from docx import Document  # noqa: E402
@@ -147,7 +134,7 @@ def write_report(results: list[CheckResult], sandbox: Path) -> None:
             "",
             "## Summary",
             "",
-            "This script exercises the filesystem tool package against an isolated temporary workspace, including document extraction, edge cases, overwrite behavior, deletion behavior, and search modes.",
+            "This script exercises the filesystem tool package against an isolated temporary workspace.",
             "",
             "Skipped checks indicate a platform limitation such as symlink creation permissions.",
         ]
@@ -188,7 +175,7 @@ def create_yaml_sample(path: Path) -> Path:
 
 def create_xml_sample(path: Path) -> Path:
     """Create an XML sample file."""
-    xml = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<report><title>Sample</title><item>One</item></report>"""
+    xml = """<?xml version="1.0" encoding="UTF-8"?>\n<report><title>Sample</title><item>One</item></report>"""
     return create_text(path, xml)
 
 
@@ -309,11 +296,11 @@ def build_sample_workspace(sandbox: Path) -> dict[str, Path]:
     empty = sandbox / "empty"
     ops = sandbox / "ops"
 
-    create_directory.invoke({"path": str(docs), "parents": True, "exist_ok": True})
-    create_directory.invoke({"path": str(edge), "parents": True, "exist_ok": True})
-    create_directory.invoke({"path": str(bulk), "parents": True, "exist_ok": True})
-    create_directory.invoke({"path": str(empty), "parents": True, "exist_ok": True})
-    create_directory.invoke({"path": str(ops), "parents": True, "exist_ok": True})
+    manage_file.invoke({"action": "create", "path": str(docs), "kind": "directory"})
+    manage_file.invoke({"action": "create", "path": str(edge), "kind": "directory"})
+    manage_file.invoke({"action": "create", "path": str(bulk), "kind": "directory"})
+    manage_file.invoke({"action": "create", "path": str(empty), "kind": "directory"})
+    manage_file.invoke({"action": "create", "path": str(ops), "kind": "directory"})
 
     samples["empty"] = empty
     samples["docs"] = docs
@@ -355,7 +342,7 @@ def build_sample_workspace(sandbox: Path) -> dict[str, Path]:
     samples["move_source"] = create_text(ops / "move_source.txt", "move source")
     samples["move_dest"] = ops / "move_dest.txt"
     samples["trash_me"] = create_text(ops / "trash_me.txt", "trash me")
-    samples["delete_dir"] = create_directory.invoke({"path": str(ops / "delete_me"), "parents": True, "exist_ok": True})
+    samples["delete_dir"] = ops / "delete_me"
 
     return samples
 
@@ -370,33 +357,24 @@ def run_tool_checks(samples: dict[str, Path]) -> list[CheckResult]:
     def add_failure(name: str, result: Any, fragment: str | None = None) -> None:
         results.append(failure(name, result, fragment))
 
-    add("current_directory", current_directory.invoke({}), lambda result: expect(isinstance(result["data"], str), "current_directory must return a string path"))
-    add("empty_directory_list", list_directory.invoke({"path": str(samples["empty"])}), lambda result: expect(result["data"] == [], "empty directory should list no entries"))
-    add("empty_directory_tree", tree.invoke({"path": str(samples["empty"])}), lambda result: expect(result["data"]["children"] == [], "empty directory tree should have no children"))
+    add("empty_directory_list", list_files.invoke({"path": str(samples["empty"]), "view": "list"}), lambda result: expect(result["data"] == [], "empty directory should list no entries"))
+    add("empty_directory_tree", list_files.invoke({"path": str(samples["empty"]), "view": "tree"}), lambda result: expect(result["data"]["children"] == [], "empty directory tree should have no children"))
 
-    add("hidden_file_excluded", list_directory.invoke({"path": str(samples["docs"]), "show_hidden": False}), lambda result: expect(all(item["name"] != ".hidden.txt" for item in result["data"]), "hidden file should be excluded when show_hidden=False"))
-    add("hidden_file_included", list_directory.invoke({"path": str(samples["docs"]), "show_hidden": True}), lambda result: expect(any(item["name"] == ".hidden.txt" for item in result["data"]), "hidden file should be included when show_hidden=True"))
+    add("hidden_file_excluded", list_files.invoke({"path": str(samples["docs"]), "view": "list"}), lambda result: expect(all(item["name"] != ".hidden.txt" for item in result["data"]), "hidden file should be excluded by default"))
 
-    add("unicode_filename_exists", exists.invoke({"path": str(samples["unicode"])}), lambda result: expect(result["data"] is True, "unicode filename should exist"))
     add("unicode_filename_read", read_file.invoke({"path": str(samples["unicode"])}), lambda result: expect(result["data"]["content"] == "unicode content", "unicode file content mismatch"))
 
-    add("bulk_directory_count", list_directory.invoke({"path": str(samples["bulk"]), "recursive": False}), lambda result: expect(len(result["data"]) >= 1000, "bulk directory should contain 1000+ files"))
-    add("bulk_directory_search", search.invoke({"path": str(samples["bulk"]), "pattern": "file_10", "case_sensitive": False}), lambda result: expect(any("file_10" in item for item in result["data"]), "search should find bulk files"))
-    add("bulk_directory_regex_search", search.invoke({"path": str(samples["bulk"]), "pattern": r"^file_10\d{2}\.txt$", "case_sensitive": True, "regex": True}), lambda result: expect(any(Path(item).name.startswith("file_10") for item in result["data"]), "regex search should find numbered bulk files"))
-    add("bulk_find_recursive", find.invoke({"pattern": "*.txt", "root": str(samples["bulk"]), "recursive": True}), lambda result: expect(len(result["data"]) >= 1000, "find should return 1000+ files"))
-    add("bulk_glob", glob.invoke({"pattern": "file_1*.txt", "root": str(samples["bulk"])}), lambda result: expect(any(Path(item).name.startswith("file_1") for item in result["data"]), "glob should match file_1* files"))
-
-    add("metadata_normal_file", metadata.invoke({"path": str(samples["txt"])}), lambda result: expect({"mime_type", "permissions", "is_symlink"}.issubset(result["data"].keys()), "metadata should include mime_type, permissions, and is_symlink"))
+    add("bulk_directory_count", list_files.invoke({"path": str(samples["bulk"]), "recursive": False}), lambda result: expect(len(result["data"]) >= 1000, "bulk directory should contain 1000+ files"))
+    add("bulk_directory_search_name", search_files.invoke({"path": str(samples["bulk"]), "query": "file_10", "search_type": "name"}), lambda result: expect(any("file_10" in item for item in result["data"]), "search should find bulk files by name"))
+    add("bulk_directory_search_glob", search_files.invoke({"path": str(samples["bulk"]), "query": "file_1*.txt"}), lambda result: expect(any(Path(item).name.startswith("file_1") for item in result["data"]), "glob should match file_1* files"))
 
     symlink_path = samples["symlink"]
     try:
         if symlink_path.exists() or symlink_path.is_symlink():
             symlink_path.unlink()
         symlink_path.symlink_to(samples["symlink_target"])
-        add("symlink_metadata", metadata.invoke({"path": str(symlink_path)}), lambda result: expect(result["data"]["is_symlink"] is True, "metadata should report symlink paths"))
         add("symlink_read_file", read_file.invoke({"path": str(symlink_path)}), lambda result: expect(result["data"]["content"] == "symlink target", "read_file should resolve symlink targets"))
     except (OSError, NotImplementedError) as exc:
-        results.append(skipped("symlink_metadata", f"Symlink creation not available: {exc}"))
         results.append(skipped("symlink_read_file", f"Symlink creation not available: {exc}"))
 
     add("read_txt", read_file.invoke({"path": str(samples["txt"])}), lambda result: expect(result["data"]["content"] == "Hello text file", "txt extraction mismatch"))
@@ -418,39 +396,28 @@ def run_tool_checks(samples: dict[str, Path]) -> list[CheckResult]:
     add_failure("read_binary_png", read_file.invoke({"path": str(samples["binary_png"])}), "Unsupported binary format")
     add_failure("large_file_default_limit", read_file.invoke({"path": str(samples["large"])}), "max_size_mb")
 
-    add_failure("write_file_overwrite_false_allowed", write_file.invoke({"path": str(samples["copy_source"]), "content": "new text", "overwrite": False}), "File already exists")
-
-    existing_copy_dest = samples["ops"] / "existing_copy.txt"
-    create_text(existing_copy_dest, "existing destination")
-    add_failure("copy_overwrite_false", copy.invoke({"source": str(samples["copy_source"]), "destination": str(existing_copy_dest), "overwrite": False}), "already exists")
-
-    existing_move_dest = samples["ops"] / "existing_move.txt"
-    create_text(existing_move_dest, "existing destination")
-    add_failure("move_overwrite_false", move.invoke({"source": str(samples["move_source"]), "destination": str(existing_move_dest), "overwrite": False}), "already exists")
+    add("write_file_append", write_file.invoke({"path": str(samples["txt"]), "content": "\nExtra line", "mode": "append"}), lambda result: expect(Path(result["data"]).exists(), "append should succeed"))
 
     readonly_file = samples["readonly"]
     make_read_only(readonly_file)
     try:
-        add_failure("write_read_only_file", write_file.invoke({"path": str(readonly_file), "content": "changed", "overwrite": True}), None)
+        add_failure("write_read_only_file", write_file.invoke({"path": str(readonly_file), "content": "changed", "mode": "overwrite"}), None)
     finally:
         restore_write(readonly_file)
 
-    add("read_multiple_documents", read_multiple.invoke({"paths": [str(samples["txt"]), str(samples["pdf"]), str(samples["docx"])]}), lambda result: expect(str(samples["txt"]).replace("/", "\\") in result["data"], "read_multiple should include the plain text file"))
-
-    add("delete_with_trash", delete.invoke({"path": str(samples["trash_me"]), "recursive": False, "trash": True}), lambda result: expect(not Path(result["data"]).exists(), "trash delete should remove the original path"))
-
     delete_dir = samples["ops"] / "delete_me"
-    create_directory.invoke({"path": str(delete_dir), "parents": True, "exist_ok": True})
+    manage_file.invoke({"action": "create", "path": str(delete_dir), "kind": "directory"})
     create_text(delete_dir / "child.txt", "child")
-    add_failure("delete_directory_requires_recursive", delete.invoke({"path": str(delete_dir), "recursive": False}), "recursive")
-    add("delete_directory_recursive", delete.invoke({"path": str(delete_dir), "recursive": True}), lambda result: expect(not Path(result["data"]).exists(), "recursive delete should remove the directory"))
+    add("delete_directory_recursive", manage_file.invoke({"action": "delete", "path": str(delete_dir)}), lambda result: expect(not Path(result["data"]).exists(), "recursive delete should remove the directory"))
 
-    add("create_directory", create_directory.invoke({"path": str(samples["ops"] / "created"), "parents": True, "exist_ok": True}), lambda result: expect(Path(result["data"]).exists(), "create_directory should create the directory"))
-    add("create_file", create_file.invoke({"path": str(samples["ops"] / "created" / "new.txt"), "exist_ok": False}), lambda result: expect(Path(result["data"]).exists(), "create_file should create the file"))
+    add("create_directory_kind", manage_file.invoke({"action": "create", "path": str(samples["ops"] / "created_dir"), "kind": "directory"}), lambda result: expect(Path(result["data"]).exists(), "manage_file create directory should succeed"))
+    add("create_file_kind", manage_file.invoke({"action": "create", "path": str(samples["ops"] / "created_file"), "kind": "file"}), lambda result: expect(Path(result["data"]).exists(), "manage_file create file should succeed"))
 
-    add("copy_regular", copy.invoke({"source": str(samples["copy_source"]), "destination": str(samples["ops"] / "copied.txt"), "overwrite": False}), lambda result: expect(Path(result["data"]).exists(), "copy should create the destination file"))
-    add("move_regular", move.invoke({"source": str(samples["move_source"]), "destination": str(samples["ops"] / "moved.txt"), "overwrite": False}), lambda result: expect(Path(result["data"]).exists(), "move should create the destination file"))
-    add("rename_regular", rename.invoke({"path": str(samples["ops"] / "moved.txt"), "new_name": "renamed.txt"}), lambda result: expect(Path(result["data"]).name == "renamed.txt", "rename should change the base name"))
+    add("copy_regular", manage_file.invoke({"action": "copy", "path": str(samples["copy_source"]), "target": str(samples["ops"] / "copied.txt")}), lambda result: expect(Path(result["data"]).exists(), "copy should create the destination file"))
+    add("move_regular", manage_file.invoke({"action": "move", "path": str(samples["move_source"]), "target": str(samples["ops"] / "moved.txt")}), lambda result: expect(Path(result["data"]).exists(), "move should create the destination file"))
+    add("rename_regular", manage_file.invoke({"action": "rename", "path": str(samples["ops"] / "moved.txt"), "target": "renamed.txt"}), lambda result: expect(Path(result["data"]).name == "renamed.txt", "rename should change the base name"))
+
+    add("search_content", search_files.invoke({"path": str(samples["docs"]), "query": "Markdown", "search_type": "content"}), lambda result: expect(any("sample.md" in item for item in result["data"]), "content search should find Markdown in sample.md"))
 
     return results
 

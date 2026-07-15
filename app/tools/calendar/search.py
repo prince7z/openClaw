@@ -41,7 +41,7 @@ def _api_search(
     return response.model_dump()
 
 
-@tool("calendar.search")
+# Internal helper function, not exposed as tool
 def calendar_search(
     query: str,
     limit: int = 10,

@@ -36,7 +36,7 @@ def _api_list_calendars(service: Any) -> dict[str, Any]:
     return response.model_dump()
 
 
-@tool("calendar.list_shared_calendars")
+# Internal helper function, not exposed as tool
 def calendar_list_shared_calendars() -> dict[str, Any]:
     """Retrieve lists of calendars that the user has access to (including secondary/shared calendars).
 

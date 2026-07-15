@@ -4,7 +4,7 @@ import csv
 import json
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from xml.dom import minidom
 from xml.etree import ElementTree as ET
 
@@ -16,7 +16,7 @@ from ebooklib import epub
 from langchain.tools import tool
 from markdownify import markdownify as html_to_markdown
 from openpyxl import load_workbook
-
+from app.tools.filesystem.supported import SUPPORTED_DOCUMENT_EXTENSIONS, UNSUPPORTED_BINARY_EXTENSIONS
 import fitz
 from pptx import Presentation
 
@@ -33,60 +33,7 @@ from app.tools.filesystem._common import (
     validate_text_content,
 )
 
-SUPPORTED_DOCUMENT_EXTENSIONS = {
-    ".csv",
-    ".docx",
-    ".epub",
-    ".htm",
-    ".html",
-    ".json",
-    ".md",
-    ".markdown",
-    ".odt",
-    ".pdf",
-    ".pptx",
-    ".txt",
-    ".xlsx",
-    ".xml",
-    ".yaml",
-    ".yml",
-}
 
-UNSUPPORTED_BINARY_EXTENSIONS = {
-    ".7z",
-    ".avi",
-    ".bin",
-    ".bmp",
-    ".class",
-    ".db",
-    ".dll",
-    ".doc",
-    ".dot",
-    ".dylib",
-    ".exe",
-    ".gif",
-    ".gz",
-    ".ico",
-    ".iso",
-    ".jpeg",
-    ".jpg",
-    ".mkv",
-    ".mov",
-    ".mp3",
-    ".mp4",
-    ".msi",
-    ".pdfa",
-    ".png",
-    ".ppt",
-    ".psd",
-    ".rar",
-    ".so",
-    ".tar",
-    ".wav",
-    ".webp",
-    ".xls",
-    ".zip",
-}
 
 ODT_TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
 
@@ -352,16 +299,7 @@ def _extract_markdown_content(path: Path, encoding: str) -> str:
 
 @tool
 def read_file(path: str, encoding: str = "utf-8", max_size_mb: int = 50) -> dict[str, Any]:
-    """Read a text file or common document format and return Markdown content.
-
-    Args:
-        path: File path to read.
-        encoding: Text encoding to use for text-based formats.
-        max_size_mb: Maximum file size allowed before refusing to read.
-
-    Returns:
-        A structured document payload with Markdown content and metadata.
-    """
+    """Read a file."""
     try:
         target = to_path(path)
         if not target.exists():
@@ -397,82 +335,15 @@ def read_file(path: str, encoding: str = "utf-8", max_size_mb: int = 50) -> dict
         return make_result(False, None, str(exc))
 
 
-@tool
-def read_multiple(paths: list[str], encoding: str = "utf-8") -> dict[str, Any]:
-    """Read multiple files and return their content mapping.
-
-    Args:
-        paths: File paths to read.
-        encoding: Text encoding to use for text-based formats.
-
-    Returns:
-        A dictionary mapping absolute file paths to content strings.
-    """
-    try:
-        validated_paths = validate_paths(paths)
-        contents: dict[str, Any] = {}
-        errors: dict[str, str] = {}
-
-        for target in validated_paths:
-            result = read_file.invoke({"path": str(target), "encoding": encoding})
-            if not isinstance(result, dict):
-                errors[str(target)] = "Invalid tool response"
-                continue
-            if not result.get("success"):
-                errors[str(target)] = str(result.get("error"))
-                continue
-            contents[str(target.resolve(strict=False))] = result["data"]["content"]
-
-        if errors:
-            return make_result(False, {"contents": contents, "errors": errors}, "One or more files could not be read")
-
-        return make_result(True, contents, None)
-    except Exception as exc:
-        return make_result(False, None, str(exc))
-
 
 @tool
-def write_file(path: str, content: str, overwrite: bool = True, encoding: str = "utf-8") -> dict[str, Any]:
-    """Write text content to a file.
-
-    Args:
-        path: File path to write.
-        content: Text content to write.
-        overwrite: Whether to replace an existing file.
-        encoding: Text encoding to use.
-
-    Returns:
-        The absolute file path that was written.
-    """
-    try:
-        target = to_path(path)
-        text = validate_text_content(content)
-
-        if target.exists():
-            if target.is_dir():
-                return make_result(False, None, f"Path is a directory: {target}")
-            if not overwrite:
-                return make_result(False, None, f"File already exists: {target}")
-
-        ensure_parent_directory(target)
-        target.write_text(text, encoding=encoding)
-        return make_result(True, str(target.resolve(strict=False)), None)
-    except Exception as exc:
-        return make_result(False, None, str(exc))
-
-
-@tool
-def append_file(path: str, content: str, encoding: str = "utf-8") -> dict[str, Any]:
-    """Append text content to a file.
-
-    Args:
-        path: File path to append to.
-        content: Text content to append.
-        encoding: Text encoding to use.
-
-    Returns:
-        The absolute file path that was updated.
-    """
+def write_file(
+    path: str,
+    content: str,
+    mode: Literal["overwrite", "append"] = "overwrite",
+    encoding: str = "utf-8"
+) -> dict[str, Any]:
+    """Write or append content to a file."""
     try:
         target = to_path(path)
         text = validate_text_content(content)
@@ -481,15 +352,19 @@ def append_file(path: str, content: str, encoding: str = "utf-8") -> dict[str, A
             return make_result(False, None, f"Path is a directory: {target}")
 
         ensure_parent_directory(target)
-        with target.open("a", encoding=encoding) as handle:
-            handle.write(text)
+        if mode == "append":
+            with target.open("a", encoding=encoding) as handle:
+                handle.write(text)
+        else:
+            target.write_text(text, encoding=encoding)
 
         return make_result(True, str(target.resolve(strict=False)), None)
     except Exception as exc:
         return make_result(False, None, str(exc))
 
 
-@tool
+
+# Internal helper function, not exposed as tool
 def create_file(path: str, exist_ok: bool = False, **kwargs: Any) -> dict[str, Any]:
     """Create an empty file and any necessary parent directories.
 

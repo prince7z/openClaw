@@ -1,7 +1,7 @@
 """Google Calendar list events tool implementation."""
 
 import datetime
-from typing import Any
+from typing import Any, Literal
 from langchain.tools import tool
 
 from app.tools.calendar.executor import execute_calendar_request
@@ -54,7 +54,7 @@ def _api_list_events(
     return response.model_dump()
 
 
-@tool("calendar.list_events")
+# Internal helper function, not exposed as tool
 def calendar_list_events(
     start: str | None = None,
     end: str | None = None,
@@ -93,3 +93,46 @@ def calendar_list_events(
         limit,
         calendar_id
     )
+
+
+@tool("calendar.list_calendar")
+def list_calendar(
+    resource: Literal["events", "tasks", "calendars"] = "events",
+    query: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict[str, Any]:
+    """List calendars, events, or tasks."""
+    try:
+        if resource == "events":
+            if query:
+                from app.tools.calendar.search import calendar_search
+                return calendar_search(query=query, limit=25)
+            else:
+                return calendar_list_events(start=start, end=end, limit=25)
+        elif resource == "tasks":
+            from app.tools.calendar.tasks import calendar_list_tasks
+            res = calendar_list_tasks(limit=25)
+            if query and res.get("success"):
+                tasks = res.get("tasks") or []
+                filtered = [
+                    t for t in tasks
+                    if query.lower() in t.get("title", "").lower() or query.lower() in (t.get("notes") or "").lower()
+                ]
+                res["tasks"] = filtered
+            return res
+        elif resource == "calendars":
+            from app.tools.calendar.shared import calendar_list_shared_calendars
+            res = calendar_list_shared_calendars()
+            if query and res.get("success"):
+                calendars = res.get("calendars") or []
+                filtered = [
+                    c for c in calendars
+                    if query.lower() in c.get("summary", "").lower() or query.lower() in (c.get("description") or "").lower()
+                ]
+                res["calendars"] = filtered
+            return res
+        else:
+            return {"success": False, "error": f"Unsupported resource: {resource}"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}

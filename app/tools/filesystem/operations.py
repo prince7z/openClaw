@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from langchain.tools import tool
+from app.tools.filesystem.files import create_file
 
 from app.tools.filesystem._common import (
     make_result,
@@ -14,7 +15,7 @@ from app.tools.filesystem._common import (
 )
 
 
-@tool
+# Internal helper function, not exposed as tool
 def copy(source: str, destination: str, overwrite: bool = False) -> dict[str, Any]:
     """Copy a file or directory.
 
@@ -51,7 +52,7 @@ def copy(source: str, destination: str, overwrite: bool = False) -> dict[str, An
         return make_result(False, None, str(exc))
 
 
-@tool
+# Internal helper function, not exposed as tool
 def move(source: str, destination: str, overwrite: bool = False) -> dict[str, Any]:
     """Move a file or directory.
 
@@ -84,7 +85,7 @@ def move(source: str, destination: str, overwrite: bool = False) -> dict[str, An
         return make_result(False, None, str(exc))
 
 
-@tool
+# Internal helper function, not exposed as tool
 def rename(path: str, new_name: str) -> dict[str, Any]:
     """Rename a file or directory.
 
@@ -112,7 +113,7 @@ def rename(path: str, new_name: str) -> dict[str, Any]:
         return make_result(False, None, str(exc))
 
 
-@tool
+# Internal helper function, not exposed as tool
 def delete(path: str, recursive: bool = False, trash: bool = False) -> dict[str, Any]:
     """Delete a file or directory.
 
@@ -142,7 +143,7 @@ def delete(path: str, recursive: bool = False, trash: bool = False) -> dict[str,
         return make_result(False, None, str(exc))
 
 
-@tool
+# Internal helper function, not exposed as tool
 def create_directory(path: str, parents: bool = True, exist_ok: bool = True) -> dict[str, Any]:
     """Create a directory.
 
@@ -161,5 +162,52 @@ def create_directory(path: str, parents: bool = True, exist_ok: bool = True) -> 
 
         target.mkdir(parents=parents, exist_ok=exist_ok)
         return make_result(True, str(target.resolve(strict=False)), None)
+    except Exception as exc:
+        return make_result(False, None, str(exc))
+
+
+@tool
+def manage_file(
+    action: Literal["copy", "move", "rename", "delete", "create"],
+    path: str,
+    target: str | None = None,
+    kind: Literal["file", "directory"] | None = None
+) -> dict[str, Any]:
+    """Manage files and directories."""
+    try:
+        if action == "copy":
+            if not target:
+                return make_result(False, None, "copy action requires a target destination")
+            return copy(source=path, destination=target, overwrite=True)
+
+        elif action == "move":
+            if not target:
+                return make_result(False, None, "move action requires a target destination")
+            return move(source=path, destination=target, overwrite=True)
+
+        elif action == "rename":
+            if not target:
+                return make_result(False, None, "rename action requires a target new name")
+            return rename(path=path, new_name=target)
+
+        elif action == "delete":
+            return delete(path=path, recursive=True)
+
+        elif action == "create":
+            if kind == "directory":
+                is_dir = True
+            elif kind == "file":
+                is_dir = False
+            else:
+                target_path = Path(path)
+                is_dir = path.endswith('/') or path.endswith('\\') or not target_path.suffix
+
+            if is_dir:
+                return create_directory(path=path, parents=True, exist_ok=True)
+            else:
+                return create_file(path=path, exist_ok=True)
+
+        else:
+            return make_result(False, None, f"Unsupported action: {action}")
     except Exception as exc:
         return make_result(False, None, str(exc))

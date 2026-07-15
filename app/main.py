@@ -16,6 +16,9 @@ def configure_logging() -> None:
 			level=logging.INFO,
 			format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 		)
+	# Suppress noisy HTTP requests logs from httpx and httpcore
+	logging.getLogger("httpx").setLevel(logging.WARNING)
+	logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 configure_logging()

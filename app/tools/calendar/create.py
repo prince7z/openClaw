@@ -1,7 +1,7 @@
 """Google Calendar event creation tools."""
 
 import time
-from typing import Any
+from typing import Any, Literal
 from langchain.tools import tool
 
 from app.tools.calendar.executor import execute_calendar_request
@@ -108,160 +108,152 @@ def _api_create_event(
     return response.model_dump()
 
 
-@tool("calendar.create_event")
-def calendar_create_event(
-    summary: str,
-    start: str,
-    end: str,
-    description: str | None = None,
-    location: str | None = None,
-    attendees: list[str] = [],
-    reminders: list[dict] = [],
-    calendar_id: str = "primary"
+
+
+@tool("calendar.manage_event")
+def manage_event(
+    action: Literal["create", "update", "delete"],
+    event_id: str | None = None,
+    event: dict | None = None,
+    attendee_action: Literal["add", "remove"] | None = None,
 ) -> dict[str, Any]:
-    """Create a new standard calendar event.
+    """Create, update, or delete calendar events."""
+    try:
+        if action == "create":
+            if not event:
+                return {"success": False, "error": "event dictionary is required for create action", "data": None}
+            summary = event.get("summary")
+            start = event.get("start")
+            end = event.get("end")
+            if not summary or not start or not end:
+                return {"success": False, "error": "summary, start, and end are required in event dictionary for create action", "data": None}
+            
+            description = event.get("description")
+            location = event.get("location")
+            attendees = event.get("attendees") or []
+            reminders = event.get("reminders") or []
+            recurrence_rule = event.get("recurrence_rule")
+            conference = event.get("conference", False)
+            
+            details = {
+                "Title": summary,
+                "Start": start,
+                "End": end,
+                "Attendees": len(attendees),
+                "Reminders": len(reminders)
+            }
+            return execute_calendar_request(
+                "Create",
+                details,
+                "calendar",
+                _api_create_event,
+                summary,
+                start,
+                end,
+                description,
+                location,
+                attendees,
+                reminders,
+                recurrence_rule,
+                conference,
+                "primary"
+            )
 
-    Args:
-        summary: The title/summary of the calendar event.
-        start: ISO-8601 date-time string (e.g. '2026-07-13T15:00:00Z') or date (e.g. '2026-07-13').
-        end: ISO-8601 date-time string (e.g. '2026-07-13T16:00:00Z') or date (e.g. '2026-07-13').
-        description: Optional details or description text of the event.
-        location: Optional location description string.
-        attendees: Optional list of email addresses of attendees. Defaults to [].
-        reminders: Optional list of reminder overrides, e.g. [{'method': 'popup', 'minutes': 30}]. Defaults to [].
-        calendar_id: Calendar ID. Defaults to 'primary'.
+        elif action == "update":
+            if not event_id:
+                return {"success": False, "error": "event_id is required for update action", "data": None}
 
-    Returns:
-        A dict containing success state, event_id, and calendar_link.
-    """
-    details = {
-        "Title": summary,
-        "Start": start,
-        "End": end,
-        "Attendees": len(attendees),
-        "Reminders": len(reminders)
-    }
-    return execute_calendar_request(
-        "Create",
-        details,
-        "calendar",
-        _api_create_event,
-        summary,
-        start,
-        end,
-        description,
-        location,
-        attendees,
-        reminders,
-        None,  # No recurrence
-        False,  # No meet
-        calendar_id
-    )
+            if attendee_action:
+                if not event or "attendees" not in event:
+                    return {"success": False, "error": "event dictionary with 'attendees' list is required for attendee_action", "data": None}
+                emails = event.get("attendees") or []
+                
+                if attendee_action == "add":
+                    from app.tools.calendar.update import _api_add_attendees
+                    details = {
+                        "Event ID": event_id,
+                        "Calendar ID": "primary",
+                        "Add Emails": ", ".join(emails)
+                    }
+                    return execute_calendar_request(
+                        "Update",
+                        details,
+                        "calendar",
+                        _api_add_attendees,
+                        event_id,
+                        emails,
+                        "primary"
+                    )
+                elif attendee_action == "remove":
+                    from app.tools.calendar.update import _api_remove_attendees
+                    details = {
+                        "Event ID": event_id,
+                        "Calendar ID": "primary",
+                        "Remove Emails": ", ".join(emails)
+                    }
+                    return execute_calendar_request(
+                        "Update",
+                        details,
+                        "calendar",
+                        _api_remove_attendees,
+                        event_id,
+                        emails,
+                        "primary"
+                    )
+                else:
+                    return {"success": False, "error": f"Unsupported attendee_action: {attendee_action}", "data": None}
+            else:
+                if not event:
+                    return {"success": False, "error": "event dictionary is required for update action", "data": None}
+                summary = event.get("summary")
+                start = event.get("start")
+                end = event.get("end")
+                description = event.get("description")
+                location = event.get("location")
+                attendees = event.get("attendees")
+                reminders = event.get("reminders")
 
+                from app.tools.calendar.update import _api_update_event
+                details = {
+                    "Event ID": event_id,
+                    "Calendar ID": "primary",
+                    "Update Title": summary or "No Change",
+                    "Update Time": f"{start or 'No Change'} -> {end or 'No Change'}"
+                }
+                return execute_calendar_request(
+                    "Update",
+                    details,
+                    "calendar",
+                    _api_update_event,
+                    event_id,
+                    summary,
+                    start,
+                    end,
+                    description,
+                    location,
+                    attendees,
+                    reminders,
+                    "primary"
+                )
 
-@tool("calendar.create_recurring_event")
-def calendar_create_recurring_event(
-    summary: str,
-    start: str,
-    end: str,
-    recurrence_rule: dict,
-    description: str | None = None,
-    location: str | None = None,
-    attendees: list[str] = [],
-    reminders: list[dict] = [],
-    calendar_id: str = "primary"
-) -> dict[str, Any]:
-    """Create a new recurring calendar event using a recurrence rule (RRULE).
+        elif action == "delete":
+            if not event_id:
+                return {"success": False, "error": "event_id is required for delete action", "data": None}
+            from app.tools.calendar.delete import _api_delete_event
+            details = {
+                "Event ID": event_id,
+                "Calendar ID": "primary"
+            }
+            return execute_calendar_request(
+                "Delete",
+                details,
+                "calendar",
+                _api_delete_event,
+                event_id,
+                "primary"
+            )
 
-    Args:
-        summary: The title of the calendar event.
-        start: ISO-8601 start date-time or date string.
-        end: ISO-8601 end date-time or date string.
-        recurrence_rule: Dict specifying recurrence details. Keys:
-          - frequency: 'DAILY', 'WEEKLY', 'MONTHLY', or 'YEARLY'. (Required)
-          - interval: Optional integer multiplier (e.g., 2 for every 2 weeks).
-          - count: Optional integer maximum number of recurrences.
-          - until: Optional end date string (e.g. '20261231' or '2026-12-31T23:59:59Z').
-        description: Optional details of the event.
-        location: Optional location string.
-        attendees: Optional list of email addresses. Defaults to [].
-        reminders: Optional list of reminder override dicts. Defaults to [].
-        calendar_id: Calendar ID. Defaults to 'primary'.
-
-    Returns:
-        A dict containing success state, event_id, and calendar_link.
-    """
-    details = {
-        "Title": summary,
-        "Start": start,
-        "End": end,
-        "Recurrence": str(recurrence_rule),
-        "Attendees": len(attendees)
-    }
-    return execute_calendar_request(
-        "Create",
-        details,
-        "calendar",
-        _api_create_event,
-        summary,
-        start,
-        end,
-        description,
-        location,
-        attendees,
-        reminders,
-        recurrence_rule,
-        False,  # No meet
-        calendar_id
-    )
-
-
-@tool("calendar.create_meet_event")
-def calendar_create_meet_event(
-    summary: str,
-    start: str,
-    end: str,
-    description: str | None = None,
-    location: str | None = None,
-    attendees: list[str] = [],
-    reminders: list[dict] = [],
-    calendar_id: str = "primary"
-) -> dict[str, Any]:
-    """Create a calendar event with a Google Meet conference link auto-generated.
-
-    Args:
-        summary: The title of the calendar event.
-        start: ISO-8601 start date-time or date string.
-        end: ISO-8601 end date-time or date string.
-        description: Optional details of the event.
-        location: Optional location string.
-        attendees: Optional list of email addresses. Defaults to [].
-        reminders: Optional list of reminder override dicts. Defaults to [].
-        calendar_id: Calendar ID. Defaults to 'primary'.
-
-    Returns:
-        A dict containing success state, event_id, meet_link, and calendar_link.
-    """
-    details = {
-        "Title": summary,
-        "Start": start,
-        "End": end,
-        "Meet Enabled": "True",
-        "Attendees": len(attendees)
-    }
-    return execute_calendar_request(
-        "Create",
-        details,
-        "calendar",
-        _api_create_event,
-        summary,
-        start,
-        end,
-        description,
-        location,
-        attendees,
-        reminders,
-        None,  # No recurrence
-        True,  # Meet enabled
-        calendar_id
-    )
+        else:
+            return {"success": False, "error": f"Unsupported action: {action}", "data": None}
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "data": None}

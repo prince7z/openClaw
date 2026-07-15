@@ -30,30 +30,3 @@ def _api_delete_event(
     response = DeleteResponse(success=True)
     return response.model_dump()
 
-
-@tool("calendar.delete_event")
-def calendar_delete_event(
-    event_id: str,
-    calendar_id: str = "primary"
-) -> dict[str, Any]:
-    """Delete an event from a calendar.
-
-    Args:
-        event_id: The unique hex ID of the target calendar event.
-        calendar_id: Calendar ID. Defaults to 'primary'.
-
-    Returns:
-        A dict containing success state.
-    """
-    details = {
-        "Event ID": event_id,
-        "Calendar ID": calendar_id
-    }
-    return execute_calendar_request(
-        "Delete",
-        details,
-        "calendar",
-        _api_delete_event,
-        event_id,
-        calendar_id
-    )
