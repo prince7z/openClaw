@@ -163,9 +163,6 @@ class TelegramMessageHandler:
 				result = await manager.end(update.effective_chat.id)
 				title = result["title"]
 				summary = result["summary"]
-				chat_log = ""
-				for msg in result['chat']:
-					chat_log += html.escape(str(msg)) + "\n"	
 				response_text = (
 					f"✅ <b>Conversation Successfully Archived</b>\n\n"
 					f"📌 <b>Title:</b> {html.escape(title)}\n"

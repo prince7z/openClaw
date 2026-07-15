@@ -1,3 +1,20 @@
+import sys
+import os
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+# Load local environment variables from .env file
+env_path = Path(__file__).resolve().parents[3] / ".env"
+if env_path.exists():
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, val = line.split("=", 1)
+            val = val.strip().strip("'\"")
+            os.environ[key.strip()] = val
+
 from app.database.sqlite.database import get_db_connection
 from rich.console import Console
 from rich.table import Table
