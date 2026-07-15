@@ -68,15 +68,33 @@ Conversation history:
 """
         try:
             response = await self.llm.ainvoke([HumanMessage(content=prompt)])
-            content = response.content.strip()
-            
-            # Clean Markdown wrapping if the LLM output is wrapped in code blocks
-            if content.startswith("```"):
-                lines = content.splitlines()
-                if lines[0].startswith("```json") or lines[0].startswith("```"):
-                    content = "\n".join(lines[1:-1]).strip()
-            
-            data = json.loads(content)
+            raw_content = response.content
+           
+            def extract_and_parse_json(content: str) -> dict[str, Any] | None:
+                content = content.strip()
+                if not content:
+                    return None
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    pass
+                start = content.find('{')
+                end = content.rfind('}')
+                if start != -1 and end != -1 and end >= start:
+                    json_str = content[start:end+1]
+                    try:
+                        return json.loads(json_str)
+                    except json.JSONDecodeError:
+                        pass
+                return None
+
+            data = None
+            if raw_content:
+                data = extract_and_parse_json(raw_content)
+
+            if not data:
+                raise ValueError(f"Could not parse response content as JSON. Raw response: {repr(raw_content)}")
+
             return {
                 "title": str(data.get("title", "Untitled Conversation")),
                 "summary": str(data.get("summary", "No summary generated."))

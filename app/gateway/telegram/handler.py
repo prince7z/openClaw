@@ -4,6 +4,8 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from app.gateway.telegram.parser import parse_update
+from app.conversation.manager import ConversationManager
+from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 
@@ -156,12 +158,14 @@ class TelegramMessageHandler:
 		# Handle /end command to archive the conversation context
 		if parsed.text and parsed.text.strip().lower() == "/end":
 			status_message = await message.reply_text("📝 <i>Archiving conversation, please wait...</i>", parse_mode="HTML")
-			from app.conversation.manager import ConversationManager
 			manager = ConversationManager()
 			try:
 				result = await manager.end(update.effective_chat.id)
 				title = result["title"]
 				summary = result["summary"]
+				chat_log = ""
+				for msg in result['chat']:
+					chat_log += html.escape(str(msg)) + "\n"	
 				response_text = (
 					f"✅ <b>Conversation Successfully Archived</b>\n\n"
 					f"📌 <b>Title:</b> {html.escape(title)}\n"
@@ -178,9 +182,7 @@ class TelegramMessageHandler:
 		status_message = await message.reply_text("🤖 <i>Agent is initializing...</i>", parse_mode="HTML")
 		
 		# Load state and append user message in memory
-		from app.conversation.manager import ConversationManager
 		conv_manager = ConversationManager()
-		from langchain_core.messages import HumanMessage
 		
 		state = await conv_manager.append_user_message(
 			chat_id=update.effective_chat.id,

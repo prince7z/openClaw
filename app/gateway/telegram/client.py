@@ -29,6 +29,30 @@ class TelegramGateway:
             self.application.add_handler(
                 CallbackQueryHandler(self.message_handler.handle_callback_query)
             )
+            self.application.add_error_handler(self.handle_error)
+
+    async def handle_error(
+        self, update: object, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle error event raised during Update processing."""
+        error = context.error
+        
+        # Ignore common transient network/timeout exceptions to prevent logging spam
+        from httpx import ConnectTimeout, ConnectError, ReadTimeout, WriteTimeout
+        from httpcore import ConnectTimeout as HttpcoreConnectTimeout
+        
+        ignored_exceptions = (
+            ConnectTimeout,
+            ConnectError,
+            ReadTimeout,
+            WriteTimeout,
+            HttpcoreConnectTimeout,
+        )
+        if isinstance(error, ignored_exceptions):
+            logger.warning(f"Telegram client network/timeout exception encountered: {error}")
+            return
+            
+        logger.error("Exception while handling an update:", exc_info=error)
 
     def is_configured(self) -> bool:
         return self.application is not None
