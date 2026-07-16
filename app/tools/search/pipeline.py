@@ -6,9 +6,9 @@ from app.tools.search.schemas import SearchResponse
 from app.tools.search.tavily import search_tavily
 from app.tools.search.fetcher import fetch_all_pages
 from app.tools.search.extractor import extract_and_deduplicate
-from app.tools.search.chunker import chunk_documents
-from app.tools.search.reranker import rerank_chunks
-from app.tools.search.embedder import generate_embeddings
+from app.database.vector.chunker import chunk_documents
+from app.database.vector.reranker import rerank_chunks
+from app.database.vector.embedder import generate_embeddings
 from app.tools.search.vectorstore import save_chunks_to_qdrant
 from app.tools.search.utils import (
     generate_request_id,

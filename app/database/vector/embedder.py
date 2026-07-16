@@ -1,4 +1,4 @@
-"""Embeddings generator client utilizing BAAI/bge-m3 on the Infinity Server."""
+"""Embeddings generator client utilizing BAAI/bge-small-en-v1.5 on the Infinity Server."""
 
 import logging
 import httpx
@@ -30,12 +30,13 @@ async def generate_embeddings(request_id: str, texts: list[str]) -> list[list[fl
 
     endpoints = ["/v1/embeddings", "/embeddings"]
     response = None
+    last_error = "timeout or connection failure"
 
-    async with httpx.AsyncClient(timeout=3.0) as client:
+    async with httpx.AsyncClient(timeout=5.0) as client:
         for path in endpoints:
             url = f"{Infinity_url.rstrip('/')}{path}"
             payload = {
-                "model": "BAAI/bge-m3",
+                "model": "BAAI/bge-small-en-v1.5",
                 "input": texts
             }
             try:
@@ -43,13 +44,16 @@ async def generate_embeddings(request_id: str, texts: list[str]) -> list[list[fl
                 if res.status_code == 200:
                     response = res
                     break
+                else:
+                    last_error = f"status {res.status_code}: {res.text}"
             except Exception as exc:
+                last_error = str(exc)
                 logger.warning(f"Embedding failed on endpoint {url}: {exc}")
 
         if not response or response.status_code != 200:
             log_stage(
                 request_id,
-                f"Error: Embedding API call failed (status: {response.status_code if response else 'timeout'}).",
+                f"Error: Embedding API call failed ({last_error}).",
                 "error"
             )
             return [[] for _ in texts]
