@@ -56,7 +56,7 @@ def _api_send(
     return response.model_dump()
 
 
-@tool("gmail.send")
+@tool("gmail_send")
 def gmail_send(
     to: str | list[str],
     subject: str,

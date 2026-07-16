@@ -110,7 +110,7 @@ def _api_create_event(
 
 
 
-@tool("calendar.manage_event")
+@tool("calendar_manage_event")
 def manage_event(
     action: Literal["create", "update", "delete"],
     event_id: str | None = None,

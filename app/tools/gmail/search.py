@@ -70,7 +70,7 @@ def _api_search(
     return response.model_dump()
 
 
-@tool("gmail.search")
+@tool("gmail_search")
 def gmail_search(
     query: str,
     limit: int = 10,

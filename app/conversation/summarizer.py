@@ -40,13 +40,17 @@ class ConversationSummarizer:
                 "summary": "No messages were recorded."
             }
 
-        # Format message log
+        # Format message log (only human and AI messages to keep context low and relevant)
         history = []
         for msg in messages:
-            role = "User" if msg.type == "human" else "Assistant"
-            content = (msg.content or "").strip()
-            if content:
-                history.append(f"{role}: {content}")
+            if msg.type == "human":
+                content = (msg.content or "").strip()
+                if content:
+                    history.append(f"User: {content}")
+            elif msg.type == "ai":
+                content = (msg.content or "").strip()
+                if content:
+                    history.append(f"Assistant: {content}")
 
         log_text = "\n".join(history)
         if not log_text:

@@ -2,7 +2,7 @@ import logging
 import os
 import time
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, ToolMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from app.config import OpenRouter_model,OpenRouter_api_key  
 from app.agent.prompts import SYSTEM_PROMPT
@@ -104,19 +104,41 @@ def planner(state: AgentState) -> dict:
     """
     messages = state.get("messages") or []
 
-    # Insert system prompt if not present at the beginning
-    if not messages or not isinstance(messages[0], SystemMessage):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(messages)
+    # Find the index of the last HumanMessage in conversation history
+    last_human_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            last_human_idx = i
+            break
 
-    log_messages_sent(messages)
+    # Truncate historical ToolMessages (> 500 chars) to first 100 chars
+    processed_messages = []
+    for i, msg in enumerate(messages):
+        if i < last_human_idx and isinstance(msg, ToolMessage) and len(str(msg.content)) > 500:
+            truncated_content = str(msg.content)[:100] + "\n...(truncated)"
+            truncated_msg = ToolMessage(
+                content=truncated_content,
+                name=getattr(msg, "name", None),
+                tool_call_id=getattr(msg, "tool_call_id", None)
+            )
+            processed_messages.append(truncated_msg)
+        else:
+            processed_messages.append(msg)
+
+    # Insert system prompt if not present at the beginning
+    if not processed_messages or not isinstance(processed_messages[0], SystemMessage):
+        processed_messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(processed_messages)
+
+    log_messages_sent(processed_messages)
     logger.info(f"[llm_request] Calling LLM model: {OpenRouter_model}...")
 
     start_time = time.time()
     try:
-        response = llm_with_tools.invoke(messages)
+        response = llm_with_tools.invoke(processed_messages)
+        print("sent message on call - ",processed_messages)
         duration = time.time() - start_time
         logger.info(f"[time] LLM execution completed in {duration:.3f}s")
-        analyze_and_log_tokens(messages, response)
+        analyze_and_log_tokens(processed_messages, response)
     except Exception as exc:
         logger.error(f"[error] LLM request execution failed: {exc}")
         raise exc

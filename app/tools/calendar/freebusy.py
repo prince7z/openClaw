@@ -50,7 +50,7 @@ def _api_freebusy(
     return response.model_dump()
 
 
-@tool("calendar.free_busy")
+@tool("calendar_free_busy")
 def calendar_free_busy(
     start: str,
     end: str,

@@ -11,7 +11,7 @@ from app.tools.browser.state import run_in_browser_thread
 from app.tools.browser.utils import resolve_locator_from_id
 
 
-@tool("browser.open")
+@tool("browser_open")
 def browser_open(url: str) -> str:
     """Open a webpage."""
     session = "default"
@@ -26,7 +26,7 @@ def browser_open(url: str) -> str:
     return serialize_to_yaml(diff)
 
 
-@tool("browser.interact")
+@tool("browser_interact")
 def browser_interact(
     action: Literal["click", "type", "select"],
     element: str,
@@ -77,7 +77,7 @@ def browser_interact(
     return serialize_to_yaml(diff)
 
 
-@tool("browser.navigate")
+@tool("browser_navigate")
 def browser_navigate(
     action: Literal["back", "forward", "reload"],
 ) -> str:
@@ -113,7 +113,7 @@ def browser_navigate(
     return serialize_to_yaml(diff)
 
 
-@tool("browser.scroll")
+@tool("browser_scroll")
 def browser_scroll(
     direction: Literal["up", "down"] = "down",
     amount: int | None = None,
@@ -132,7 +132,7 @@ def browser_scroll(
     return serialize_to_yaml(diff)
 
 
-@tool("browser.file")
+@tool("browser_file")
 def browser_file(
     action: Literal["upload", "download"],
     element: str,
@@ -180,7 +180,7 @@ def browser_file(
     return serialize_to_yaml(diff)
 
 
-@tool("browser.close")
+@tool("browser_close")
 def browser_close() -> str:
     """Close the browser."""
     session = "default"

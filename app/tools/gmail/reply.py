@@ -63,7 +63,7 @@ def _api_reply(
     return response.model_dump()
 
 
-@tool("gmail.reply")
+@tool("gmail_reply")
 def gmail_reply(
     body: str,
     thread_id: str | None = None,

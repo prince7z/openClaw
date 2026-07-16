@@ -95,7 +95,7 @@ def calendar_list_events(
     )
 
 
-@tool("calendar.list_calendar")
+@tool("calendar_list_calendar")
 def list_calendar(
     resource: Literal["events", "tasks", "calendars"] = "events",
     query: str | None = None,

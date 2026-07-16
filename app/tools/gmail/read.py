@@ -72,7 +72,7 @@ def _api_read(service: Any, message_id: str, format_type: str) -> dict[str, Any]
     return response.model_dump()
 
 
-@tool("gmail.read")
+@tool("gmail_read")
 def gmail_read(message_id: str, format: str = "minimal") -> dict[str, Any]:
     """Read a single email by its unique message ID.
 

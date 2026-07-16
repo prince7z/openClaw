@@ -78,7 +78,7 @@ class BrowserStateManager:
             self._playwright = await async_playwright().start()
         return self._playwright
 
-    async def get_browser(self, headless: bool = True) -> Browser:
+    async def get_browser(self, headless: bool = False) -> Browser:
         """Retrieve or launch the browser instance."""
         pw = await self.get_playwright()
         if self._browser is None:
@@ -88,7 +88,7 @@ class BrowserStateManager:
             )
         return self._browser
 
-    async def get_session(self, name: str, headless: bool = True) -> SessionState:
+    async def get_session(self, name: str, headless: bool = False) -> SessionState:
         """Fetch or spawn a browser session page context and register events."""
         if name not in self.sessions:
             self.sessions[name] = SessionState(name)

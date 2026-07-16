@@ -207,7 +207,7 @@ def calendar_list_tasks(
 
 
 
-@tool("calendar.manage_task")
+@tool("calendar_manage_task")
 def manage_task(
     action: Literal["create", "update", "delete"],
     task_id: str | None = None,

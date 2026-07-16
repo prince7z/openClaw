@@ -78,7 +78,7 @@ def _api_download_attachment(
     return response.model_dump()
 
 
-@tool("gmail.download_attachment")
+@tool("gmail_download_attachment")
 def gmail_download_attachment(
     message_id: str,
     attachment_id: str,

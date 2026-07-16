@@ -21,7 +21,7 @@ def _get_local_reranker():
     return _LOCAL_RERANKER_MODEL
 
 
-def local_rerank(query: str, chunks: list[Chunk], top_k: int) -> list[Chunk]:
+def local_rerank(query: str, chunks: list[Chunk], top_k: int = 4) -> list[Chunk]:
     """Rerank chunks locally using sentence_transformers."""
     try:
         model = _get_local_reranker()
@@ -65,9 +65,11 @@ async def rerank_chunks(
     response = None
 
     if Infinity_url:
-        # Try both standard /rerank and /v1/rerank endpoints
-        endpoints = ["/v1/rerank", "/rerank"]
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        # Try standard /rerank first, fallback to /v1/rerank
+        endpoints = ["/rerank", "/v1/rerank"]
+        response = None
+        last_error = "timeout or connection failure"
+        async with httpx.AsyncClient(timeout=5.0) as client:
             for path in endpoints:
                 url = f"{Infinity_url.rstrip('/')}{path}"
                 payload = {
@@ -78,17 +80,19 @@ async def rerank_chunks(
                 }
                 try:
                     res = await client.post(url, json=payload)
-                    response = res
                     if res.status_code == 200:
+                        response = res
                         break
+                    else:
+                        last_error = f"status {res.status_code}: {res.text}"
                 except Exception as exc:
+                    last_error = str(exc)
                     logger.warning(f"Reranker failed on endpoint {url}: {exc}")
 
     if not response or response.status_code != 200:
-        status_desc = str(response.status_code) if response else "not configured/timeout/connection error"
         log_stage(
             request_id,
-            f"Warning: Remote Reranker failed ({status_desc}). Falling back to local SentenceTransformers reranker...",
+            f"Warning: Remote Reranker failed ({last_error}). Falling back to local SentenceTransformers reranker...",
             "warning"
         )
         try:
