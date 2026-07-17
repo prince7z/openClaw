@@ -19,6 +19,15 @@ class Settings:
 	infinity_url: str = os.getenv("INFINITY_URL", "http://localhost:7997")
 	google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback")
 	sqlite_db_path: str = os.getenv("SQLITE_DB_PATH", "openclaw.db")
+	memory_similarity_weight: float = float(os.getenv("MEMORY_SIMILARITY_WEIGHT", "0.6"))
+	memory_importance_weight: float = float(os.getenv("MEMORY_IMPORTANCE_WEIGHT", "0.25"))
+	memory_recency_weight: float = float(os.getenv("MEMORY_RECENCY_WEIGHT", "0.15"))
+	memory_minimum_score: float = float(os.getenv("MEMORY_MINIMUM_SCORE", "0.35"))
+	memory_top_k: int = int(os.getenv("MEMORY_TOP_K", "5"))
+	memory_archive_fallback_limit: int = int(os.getenv("MEMORY_ARCHIVE_FALLBACK_LIMIT", "30"))
+	summarizer_max_retries: int = int(os.getenv("SUMMARIZER_MAX_RETRIES", "2"))
+	openrouter_enable_json_mode: bool = os.getenv("OPENROUTER_ENABLE_JSON_MODE", "true").lower() in ("true", "1")
+	memory_duplicate_threshold: float = float(os.getenv("MEMORY_DUPLICATE_THRESHOLD", "0.85"))
 
 
 settings = Settings()

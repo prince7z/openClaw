@@ -84,3 +84,32 @@ def log_deleted(chat_id: int) -> None:
         f"[bold red][Del][/bold red] Active Conversation Deleted | "
         f"Chat ID: [cyan]{chat_id}[/cyan]"
     )
+
+
+def log_memories_stored(semantic_count: int, episodic_count: int) -> None:
+    """Log the storage of semantic and episodic memories to Qdrant."""
+    console.print(
+        f"[bold blue][Memory Store][/bold blue] Stored memories in Qdrant | "
+        f"Semantic: [green]{semantic_count}[/green] | "
+        f"Episodic: [green]{episodic_count}[/green]"
+    )
+
+
+def log_retrieval_started(query: str, sources: list[str]) -> None:
+    """Log the beginning of memory retrieval."""
+    sources_str = ", ".join(sources)
+    console.print(
+        f"[bold cyan][Memory Query][/bold cyan] Querying Long-Term Memory | "
+        f"Query: '[yellow]{query}[/yellow]' | "
+        f"Sources: [magenta]{sources_str}[/magenta]"
+    )
+
+
+def log_retrieval_completed(total_candidates: int, final_top_k: int) -> None:
+    """Log completion of memory retrieval and filtering results."""
+    console.print(
+        f"[bold green][Memory Match][/bold green] Retrieval Finished | "
+        f"Found: [yellow]{total_candidates} candidates[/yellow] | "
+        f"Delivered: [green]{final_top_k} matched[/green]"
+    )
+

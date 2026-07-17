@@ -4,7 +4,6 @@ import logging
 import httpx
 
 from app.config import Infinity_url
-from app.tools.search.utils import log_stage
 
 logger = logging.getLogger("openclaw-agent")
 
@@ -19,6 +18,7 @@ async def generate_embeddings(request_id: str, texts: list[str]) -> list[list[fl
     Returns:
         A list of vector embeddings (list of floats).
     """
+    from app.tools.search.utils import log_stage
     log_stage(request_id, "🧠 Generating Embeddings...")
 
     if not texts:
@@ -28,7 +28,7 @@ async def generate_embeddings(request_id: str, texts: list[str]) -> list[list[fl
         log_stage(request_id, "Warning: INFINITY_URL is not configured. Returning empty vectors.", "warning")
         return [[] for _ in texts]
 
-    endpoints = ["/v1/embeddings", "/embeddings"]
+    endpoints = ["/embeddings", "/embeddings"]
     response = None
     last_error = "timeout or connection failure"
 

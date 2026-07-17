@@ -34,11 +34,26 @@ async def lifespan(app: FastAPI):
 	from app.database.sqlite.migrations import run_migrations
 	await run_migrations()
 
+	# Run Qdrant memory collections initialization on application startup
+	try:
+		from app.database.vector.client import get_qdrant_client
+		from app.database.vector.collection import init_memory_collections
+		client = get_qdrant_client()
+		if client:
+			init_memory_collections(client)
+	except Exception as exc:
+		logger = logging.getLogger("openclaw-agent")
+		logger.warning(f"Could not initialize Qdrant memory collections: {exc}")
+
 	if telegram_gateway.is_configured():
-		if settings.telegram_mode == "polling":
-			await telegram_gateway.start_polling()
-		else:
-			await telegram_gateway.start()
+		try:
+			if settings.telegram_mode == "polling":
+				await telegram_gateway.start_polling()
+			else:
+				await telegram_gateway.start()
+		except Exception as exc:
+			logger = logging.getLogger("openclaw-agent")
+			logger.error(f"Failed to start Telegram gateway (possibly due to concurrent polling conflicts during reload): {exc}")
 
 	yield
 

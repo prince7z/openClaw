@@ -2,10 +2,17 @@
 
 import json
 import logging
+import asyncio
 from typing import Any
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
-from app.config import OpenRouter_model, OpenRouter_api_key
+from app.config import (
+    OpenRouter_model,
+    OpenRouter_api_key,
+    openrouter_enable_json_mode,
+    summarizer_max_retries,
+)
+from app.conversation.prompts import MEMORY_EXTRACTION_PROMPT
 
 logger = logging.getLogger("openclaw-agent")
 
@@ -16,31 +23,20 @@ class ConversationSummarizer:
     def __init__(self, llm: Any | None = None):
         """Initialize the summarizer with a ChatOpenAI instance or a default one."""
         if llm is None:
-            self.llm = ChatOpenAI(
-                model=OpenRouter_model,
-                api_key=OpenRouter_api_key,
-                base_url="https://openrouter.ai/api/v1",
-                temperature=0.0
-            )
+            kwargs = {
+                "model": OpenRouter_model,
+                "api_key": OpenRouter_api_key,
+                "base_url": "https://openrouter.ai/api/v1",
+                "temperature": 0.0,
+            }
+            if openrouter_enable_json_mode:
+                kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
+            self.llm = ChatOpenAI(**kwargs)
         else:
             self.llm = llm
 
-    async def summarize(self, messages: list[Any]) -> dict[str, str]:
-        """Summarize conversation message logs into a short title and summary context.
-
-        Args:
-            messages: A list of BaseMessage instances.
-
-        Returns:
-            A dictionary containing keys "title" and "summary".
-        """
-        if not messages:
-            return {
-                "title": "New Conversation",
-                "summary": "No messages were recorded."
-            }
-
-        # Format message log (only human and AI messages to keep context low and relevant)
+    def _format_history(self, messages: list[Any]) -> str:
+        """Format messages list into a structured log text string."""
         history = []
         for msg in messages:
             if msg.type == "human":
@@ -51,61 +47,84 @@ class ConversationSummarizer:
                 content = (msg.content or "").strip()
                 if content:
                     history.append(f"Assistant: {content}")
+        return "\n".join(history)
 
-        log_text = "\n".join(history)
+    def _parse_json(self, content: str) -> dict[str, Any] | None:
+        """Extract and parse JSON from content, falling back to substring parsing if needed."""
+        content = content.strip()
+        if not content:
+            return None
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        start = content.find('{')
+        end = content.rfind('}')
+        if start != -1 and end != -1 and end >= start:
+            json_str = content[start:end+1]
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+        return None
+
+    async def extract_summary_and_memories(self, messages: list[Any]) -> dict[str, Any]:
+        """Extract conversation title/summary, semantic memories, and episodic memories in a single LLM call.
+
+        Args:
+            messages: A list of BaseMessage instances.
+
+        Returns:
+            A dictionary containing keys "title", "summary", "semantic_memories", and "episodic_memories".
+        """
+        if not messages:
+            return {
+                "title": "New Conversation",
+                "summary": "No messages were recorded.",
+                "semantic_memories": [],
+                "episodic_memories": []
+            }
+
+        log_text = self._format_history(messages)
         if not log_text:
             return {
                 "title": "Empty Conversation",
-                "summary": "Conversation messages had no text content."
+                "summary": "Conversation messages had no text content.",
+                "semantic_memories": [],
+                "episodic_memories": []
             }
 
-        prompt = f"""Summarize the following chat conversation history.
-Generate a short, concise, and descriptive title (max 6 words) and a brief summary paragraph (max 3 sentences).
+        prompt = MEMORY_EXTRACTION_PROMPT.format(conversation=log_text)
 
-Format your output EXACTLY as a JSON object with keys "title" and "summary":
-{{"title": "Conversation Title", "summary": "Short paragraph summary"}}
+        max_retries = summarizer_max_retries
+        for attempt in range(max_retries):
+            try:
+                response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+                raw_content = response.content
 
-Do NOT include any extra text, code blocks, or explanations. Just return the JSON object.
+                data = None
+                if raw_content:
+                    data = self._parse_json(raw_content)
 
-Conversation history:
-{log_text}
-"""
-        try:
-            response = await self.llm.ainvoke([HumanMessage(content=prompt)])
-            raw_content = response.content
-           
-            def extract_and_parse_json(content: str) -> dict[str, Any] | None:
-                content = content.strip()
-                if not content:
-                    return None
-                try:
-                    return json.loads(content)
-                except json.JSONDecodeError:
-                    pass
-                start = content.find('{')
-                end = content.rfind('}')
-                if start != -1 and end != -1 and end >= start:
-                    json_str = content[start:end+1]
-                    try:
-                        return json.loads(json_str)
-                    except json.JSONDecodeError:
-                        pass
-                return None
+                if not data:
+                    raise ValueError(f"Could not parse extraction response as JSON. Raw response: {repr(raw_content)}")
 
-            data = None
-            if raw_content:
-                data = extract_and_parse_json(raw_content)
-
-            if not data:
-                raise ValueError(f"Could not parse response content as JSON. Raw response: {repr(raw_content)}")
-
-            return {
-                "title": str(data.get("title", "Untitled Conversation")),
-                "summary": str(data.get("summary", "No summary generated."))
-            }
-        except Exception as exc:
-            logger.error(f"Failed to generate title and summary: {exc}")
-            return {
-                "title": "Chat Session",
-                "summary": "Archived conversation history."
-            }
+                return {
+                    "title": str(data.get("title", "Untitled Conversation")),
+                    "summary": str(data.get("summary", "No summary generated.")),
+                    "semantic_memories": data.get("semantic_memories") or [],
+                    "episodic_memories": data.get("episodic_memories") or []
+                }
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Attempt {attempt + 1} failed to extract memories: {exc}. Retrying in 1.5 seconds...")
+                    await asyncio.sleep(1.5)
+                else:
+                    logger.error(f"Failed to extract summary and memories after {max_retries} attempts: {exc}")
+                    return {
+                        "title": "Chat Session",
+                        "summary": "Archived conversation history.",
+                        "semantic_memories": [],
+                        "episodic_memories": []
+                    }

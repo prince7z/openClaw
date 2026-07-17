@@ -52,6 +52,13 @@ class TelegramGateway:
             logger.warning(f"Telegram client network/timeout exception encountered: {error}")
             return
             
+        from telegram.error import Conflict
+        import asyncio
+        if isinstance(error, Conflict):
+            logger.error("Conflict detected (another bot instance is running). Shutting down this instance to prevent endless loop...")
+            asyncio.create_task(self.shutdown())
+            return
+            
         logger.error("Exception while handling an update:", exc_info=error)
 
     def is_configured(self) -> bool:

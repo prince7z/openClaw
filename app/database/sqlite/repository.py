@@ -196,3 +196,60 @@ async def archive_and_delete_active(chat_id: int, archive_data: dict[str, Any]) 
         raise exc
     finally:
         await conn.close()
+
+
+async def search_archives_by_keyword(query: str) -> list[dict[str, Any]]:
+    """Search for archived conversations by matching keywords in title or summary globally.
+
+    Args:
+        query: Query text containing keywords.
+
+    Returns:
+        List of matching archived conversation rows as dicts.
+    """
+    conn = await get_db_connection()
+    try:
+        conn.row_factory = aiosqlite.Row
+        words = [w.strip() for w in query.split() if len(w.strip()) > 2]
+        if not words:
+            # Fall back to matching the entire query as a single term if no long words
+            words = [query.strip()]
+            if not words[0]:
+                return []
+        
+        conditions = []
+        params = []
+        for w in words:
+            conditions.append("(title LIKE ? OR summary LIKE ?)")
+            pattern = f"%{w}%"
+            params.extend([pattern, pattern])
+            
+        sql = f"SELECT conversation_id, chat_id, title, summary, started_at, ended_at FROM chat_archive WHERE {' OR '.join(conditions)} ORDER BY ended_at DESC"
+        async with conn.execute(sql, tuple(params)) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+
+
+async def get_recent_archives(limit: int) -> list[dict[str, Any]]:
+    """Retrieve the most recent N archived conversations globally.
+
+    Args:
+        limit: Number of records to return.
+
+    Returns:
+        List of archived conversation rows as dicts.
+    """
+    conn = await get_db_connection()
+    try:
+        conn.row_factory = aiosqlite.Row
+        async with conn.execute(
+            "SELECT conversation_id, chat_id, title, summary, started_at, ended_at FROM chat_archive ORDER BY ended_at DESC LIMIT ?",
+            (limit,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+    finally:
+        await conn.close()
+

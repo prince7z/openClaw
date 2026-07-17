@@ -6,7 +6,6 @@ import httpx
 
 from app.config import Infinity_url
 from app.tools.search.schemas import Chunk
-from app.tools.search.utils import log_stage
 
 logger = logging.getLogger("openclaw-agent")
 
@@ -55,6 +54,7 @@ async def rerank_chunks(
     Returns:
         A list of the top_k reranked Chunk models sorted descending by relevance score.
     """
+    from app.tools.search.utils import log_stage
     log_stage(request_id, "🎯 Reranking Chunks...")
 
     if not chunks:
