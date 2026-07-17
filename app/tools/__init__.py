@@ -33,6 +33,7 @@ from app.tools.browser import (
 from app.tools.memory import retrieve_memory
 
 tools = [
+    retrieve_memory,
     web_search,
     gmail_search,
     gmail_read,
@@ -54,7 +55,6 @@ tools = [
     manage_file,
     list_files,
     search_files,
-    retrieve_memory,
 ]
 
 

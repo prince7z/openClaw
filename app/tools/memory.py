@@ -45,11 +45,11 @@ def retrieve_memory(
 
     Args:
         query: Concise semantic search query to look for in memory archives.
-        sources: Optional list of target memory sources to search. Can include any of:
+        sources: Optional but imp to list of target memory sources to search. Can include any of:
                  - "conversation": Summaries of past chat sessions (SQLite).
                  - "semantic": Long-term persistent user details (Qdrant).
                  - "episodic": Logged experiences/debugging sessions (Qdrant).
-                 If not provided, searches all sources.
+                 If not provided, searches all sources.think where can data be stored tht u needed.
     """
     from app.conversation.manager import ConversationManager
     manager = ConversationManager()

@@ -132,16 +132,42 @@ def planner(state: AgentState) -> dict:
     log_messages_sent(processed_messages)
     logger.info(f"[llm_request] Calling LLM model: {OpenRouter_model}...")
 
-    start_time = time.time()
-    try:
-        response = llm_with_tools.invoke(processed_messages)
-        print("sent message on call - ",processed_messages)
-        duration = time.time() - start_time
-        logger.info(f"[time] LLM execution completed in {duration:.3f}s")
-        analyze_and_log_tokens(processed_messages, response)
-    except Exception as exc:
-        logger.error(f"[error] LLM request execution failed: {exc}")
-        raise exc
+    max_retries = 3
+    initial_delay = 2.0
+    backoff_factor = 2.0
+    response = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            start_time = time.time()
+            response = llm_with_tools.invoke(processed_messages)
+            print("sent message on call - ", processed_messages)
+            duration = time.time() - start_time
+            logger.info(f"[time] LLM execution completed in {duration:.3f}s (attempt {attempt}/{max_retries})")
+            analyze_and_log_tokens(processed_messages, response)
+            break
+        except Exception as exc:
+            # Check if this exception is retryable (e.g. not authentication/bad requests)
+            is_retryable = True
+            exc_class_name = exc.__class__.__name__
+            if exc_class_name in ("AuthenticationError", "PermissionDeniedError", "NotFoundError", "BadRequestError"):
+                is_retryable = False
+            
+            # Check error message strings for auth issues just in case
+            exc_str = str(exc).lower()
+            if "api key" in exc_str or "unauthorized" in exc_str or "forbidden" in exc_str:
+                is_retryable = False
+
+            if not is_retryable or attempt == max_retries:
+                logger.error(f"[error] LLM request execution failed on attempt {attempt}: {exc}")
+                raise exc
+
+            delay = initial_delay * (backoff_factor ** (attempt - 1))
+            logger.warning(
+                f"[llm_retry] Attempt {attempt} failed with error: {exc}. "
+                f"Retrying in {delay:.1f}s..."
+            )
+            time.sleep(delay)
 
     updates = {
         "messages": [response]
