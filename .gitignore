@@ -31,3 +31,5 @@ credentials.json
 metadata.json
 token.json
 client_secret.json
+
+openclaw.db

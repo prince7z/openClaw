@@ -14,6 +14,13 @@ import asyncio
 import html
 from app.agent import graph
 
+from app.workflow.planner.planner_agent import WorkflowPlannerAgent
+from app.workflow.planner.compiler import WorkflowCompiler
+from app.workflow.coordinator import ExecutionCoordinator
+from app.workflow.repository.db import WorkflowRepository
+from app.workflow.context.store import VariableStore
+from app.workflow.repository.models import SessionStatus, TaskStatus, StepStatus
+
 
 class TelegramMessageHandler:
 	async def handle_message(
@@ -178,121 +185,109 @@ class TelegramMessageHandler:
 		# Handle agent enquiry/query
 		status_message = await message.reply_text("🤖 <i>Agent is initializing...</i>", parse_mode="HTML")
 		
-		# Load state and append user message in memory
-		conv_manager = ConversationManager()
-		
-		state = await conv_manager.append_user_message(
-			chat_id=update.effective_chat.id,
-			message=HumanMessage(content=parsed.text)
-		)
-		
-		config = {"configurable": {"thread_id": f"tg-{update.effective_chat.id}"}}
-		
-		# Setup Telegram callback query events store for human approval
-		bot_data = context.application.bot_data
-		if "pending_approvals" not in bot_data:
-			bot_data["pending_approvals"] = {}
-			
-		chat_id = update.effective_chat.id
-		approval_event = asyncio.Event()
-		bot_data["pending_approvals"][chat_id] = {
-			"event": approval_event,
-			"decision": False
-		}
-		
-		async def telegram_approval_callback(session_name: str, action: str, danger_reason: str) -> bool:
-			from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-			keyboard = [
-				[
-					InlineKeyboardButton("✅ Approve", callback_data=f"approve_{chat_id}"),
-					InlineKeyboardButton("❌ Deny", callback_data=f"deny_{chat_id}")
-				]
-			]
-			reply_markup = InlineKeyboardMarkup(keyboard)
-			
-			prompt = (
-				f"⚠️ <b>Dangerous Browser Action Warning!</b>\n\n"
-				f"• <b>Session:</b> <code>{session_name}</code>\n"
-				f"• <b>Action:</b> <code>{action}</code>\n"
-				f"• <b>Reason:</b> {danger_reason}\n\n"
-				f"Do you want to allow this action?"
-			)
-			approval_event.clear()
-			await message.reply_text(prompt, reply_markup=reply_markup, parse_mode="HTML")
-			await approval_event.wait()
-			return bot_data["pending_approvals"][chat_id]["decision"]
-			
-		from app.tools.browser.executor import register_approval_callback
-		loop = asyncio.get_running_loop()
-		register_approval_callback(telegram_approval_callback, loop)
-		
-		executed_tools = []
-		final_response = None
-		
 		try:
-			# Stream the stateless graph execution while updating the state dictionary in real-time
-			async for event in graph.astream(state, config):
-				for node_name, node_output in event.items():
-					# Merge node outputs into the local state
-					for key, val in node_output.items():
-						if key == "messages":
-							from langgraph.graph.message import add_messages
-							state["messages"] = add_messages(state.get("messages") or [], val)
-						else:
-							state[key] = val
-
-					if node_name == "tools":
-						# Update cumulative logs
-						tool_outputs = node_output.get("tool_outputs") or []
-						for out in tool_outputs:
-							# Match using tool execution details to prevent repeats
-							if out not in executed_tools:
-								executed_tools.append(out)
+			# 1. Ask LLM to generate the Workflow Definition JSON
+			await status_message.edit_text("🧠 <i>Planning workflow from request...</i>", parse_mode="HTML")
+			workflow_def = await WorkflowPlannerAgent.plan_workflow(parsed.text)
+			
+			# 2. Compile and validate the workflow to produce an Execution Session in SQLite
+			await status_message.edit_text("⚙️ <i>Compiling and validating execution graph...</i>", parse_mode="HTML")
+			session_id = await WorkflowCompiler.compile(workflow_def)
+			
+			# 3. Instantiate coordinator and run session in background
+			coordinator = ExecutionCoordinator()
+			coord_task = asyncio.create_task(coordinator.run_session(session_id))
+			
+			# 4. Poll the session tasks and steps states from DB while the coordinator runs
+			while not coord_task.done():
+				# Retrieve current session logs and tasks/steps status from DB
+				sess = await WorkflowRepository.get_session(session_id)
+				tasks = await WorkflowRepository.get_tasks(session_id)
+				steps = await WorkflowRepository.get_steps(session_id)
+				
+				if sess and tasks and steps:
+					# Build status dashboard text
+					dash = []
+					dash.append("🤖 <b>OpenClaw Workflow Engine</b>")
+					dash.append(f"• <b>Session ID:</b> <code>{session_id[:8]}...</code>")
+					dash.append(f"• <b>Session Status:</b> <code>{sess['status']}</code>\n")
+					dash.append("📋 <b>Execution Dashboard:</b>")
+					
+					# Group steps by task
+					steps_by_task = {}
+					for s in steps:
+						steps_by_task.setdefault(s["task_id"], []).append(s)
+						
+					for t in tasks:
+						t_status_icon = "⏳"
+						if t["status"] == "RUNNING":
+							t_status_icon = "🔄"
+						elif t["status"] == "COMPLETED":
+							t_status_icon = "✅"
+						elif t["status"] == "FAILED":
+							t_status_icon = "❌"
+						elif t["status"] == "WAITING":
+							t_status_icon = "⚠️"
+							
+						dash.append(f"\n{t_status_icon} <b>Task: {html.escape(t['name'])}</b>")
+						
+						for s in steps_by_task.get(t["id"], []):
+							s_status_icon = "⚪️"
+							if s["status"] == "READY":
+								s_status_icon = "🟡"
+							elif s["status"] == "RUNNING":
+								s_status_icon = "⚙️"
+							elif s["status"] == "COMPLETED":
+								s_status_icon = "💚"
+							elif s["status"] == "FAILED":
+								s_status_icon = "🔴"
+							elif s["status"] == "WAITING":
+								s_status_icon = "⚠️"
+							elif s["status"] == "SKIPPED":
+								s_status_icon = "➖"
 								
-						# Formulate real-time status text
-						status_lines = []
-						for idx, out in enumerate(executed_tools, start=1):
-							status_lines.append(f"🛠 <b>{idx}.</b> <code>{html.escape(out['tool'])}</code> ({out['execution_time']:.2f}s)")
+							dash.append(f"   • {s_status_icon} <code>{html.escape(s['name'])}</code> ({s['status']})")
 							
-						status_text = "🤖 <i>Agent is executing tools...</i>\n\n" + "\n".join(status_lines)
-						try:
-							await status_message.edit_text(status_text, parse_mode="HTML")
-						except Exception:
-							pass
-							
-					elif node_name == "planner":
-						if "final_response" in node_output:
-							final_response = node_output["final_response"]
-
-			# Format final response and tool logs report
-			escaped_resp = final_response or "(No response content returned)"
+					dashboard_text = "\n".join(dash)
+					try:
+						await status_message.edit_text(dashboard_text, parse_mode="HTML")
+					except Exception:
+						pass
+				
+				await asyncio.sleep(0.5)
 			
-			tool_log = ""
-			if executed_tools:
-				tool_log += "\n\n<b>🛠 Tool Executions Log</b>\n"
-				for idx, out in enumerate(executed_tools, start=1):
-					args_str = html.escape(str(out['args']))
-					if len(args_str) > 150:
-						args_str = args_str[:147] + "..."
-					tool_log += f"<b>{idx}.</b> <code>{html.escape(out['tool'])}</code>\n"
-					tool_log += f"   • Args: <code>{args_str}</code>\n"
-					tool_log += f"   • Duration: <code>{out['execution_time']:.2f}s</code>\n"
-
-			final_msg = f"{escaped_resp}{tool_log}"
-			await status_message.edit_text(final_msg, parse_mode="HTML")
+			# Await coordinate task termination
+			await coord_task
 			
-			# Save the finalized state block exactly once on successful execution
-			await conv_manager.save(update.effective_chat.id, state)
+			# 5. Fetch variables store to return the result report
+			sess = await WorkflowRepository.get_session(session_id)
+			variables = await VariableStore.get_all(session_id)
+			
+			report_lines = []
+			report_lines.append(f"🏁 <b>Workflow Execution Completed ({sess['status']})</b>\n")
+			
+			if variables:
+				report_lines.append("📥 <b>Output Variables Context:</b>")
+				for k, v in variables.items():
+					val_str = str(v)
+					# Handle standard filesystem outputs nicely
+					if isinstance(v, dict) and v.get("success") is True and isinstance(v.get("data"), dict):
+						val_str = v["data"].get("content", str(v))
+					if len(val_str) > 400:
+						val_str = val_str[:397] + "..."
+					report_lines.append(f"• <b>{html.escape(k)}:</b> <code>{html.escape(val_str)}</code>")
+			else:
+				report_lines.append("<i>(No variables were output during execution)</i>")
+				
+			final_report = "\n".join(report_lines)
+			await message.reply_text(final_report, parse_mode="HTML")
 			
 		except Exception as exc:
-			logger.exception("Error during Telegram agent execution:")
+			logger.exception("Error during Telegram workflow execution:")
 			await status_message.edit_text(
-				f"❌ <b>An error occurred while running the pipeline:</b>\n<code>{html.escape(str(exc))}</code>",
+				f"❌ <b>Execution Failed:</b>\n<code>{html.escape(str(exc))}</code>",
 				parse_mode="HTML"
 			)
-		finally:
-			register_approval_callback(None)
-			bot_data["pending_approvals"].pop(chat_id, None)
 
 	async def handle_callback_query(
 		self, update: Update, context: ContextTypes.DEFAULT_TYPE
