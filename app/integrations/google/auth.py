@@ -29,11 +29,30 @@ logger = logging.getLogger("openclaw-agent")
 def resolve_client_secrets_path() -> Path:
     """Resolve and return the client_secret.json path, performing legacy migration if needed.
 
+    Checks:
+    1. app/credentials/google/client_secret.json
+    2. app/integrations/google/client_secret.json (copies to credentials if found)
+    3. app/credentials/gmail/client_secret.json (legacy)
+
+    If none exist, creates a placeholder client_secret.json.
+
     Returns:
         The resolved Path object.
     """
     if CLIENT_SECRETS_PATH.exists():
         return CLIENT_SECRETS_PATH
+
+    # Check user-misplaced path: app/integrations/google/client_secret.json
+    integrations_path = Path("app/integrations/google/client_secret.json")
+    if integrations_path.exists():
+        try:
+            GOOGLE_CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+            shutil.copy(str(integrations_path), str(CLIENT_SECRETS_PATH))
+            logger.info("Successfully migrated client_secret.json from integrations to credentials directory.")
+            return CLIENT_SECRETS_PATH
+        except Exception as exc:
+            logger.warning(f"Failed to copy client_secret.json from integrations directory: {exc}")
+            return integrations_path
 
     if GMAIL_LEGACY_CLIENT_SECRET.exists():
         try:
@@ -44,6 +63,28 @@ def resolve_client_secrets_path() -> Path:
         except Exception as exc:
             logger.warning(f"Failed to migrate legacy client_secret.json: {exc}")
             return GMAIL_LEGACY_CLIENT_SECRET
+
+    # Fallback placeholder creation if none of the above are found
+    try:
+        GOOGLE_CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
+        import json
+        placeholder_content = {
+            "installed": {
+                "client_id": "PLACEHOLDER_CLIENT_ID.apps.googleusercontent.com",
+                "project_id": "placeholder-project-id",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": "PLACEHOLDER_CLIENT_SECRET",
+                "redirect_uris": [
+                    "http://localhost"
+                ]
+            }
+        }
+        CLIENT_SECRETS_PATH.write_text(json.dumps(placeholder_content, indent=2), encoding="utf-8")
+        logger.info(f"Created a placeholder Google OAuth client secrets file at: {CLIENT_SECRETS_PATH}")
+    except Exception as exc:
+        logger.warning(f"Failed to create placeholder client_secret.json: {exc}")
 
     return CLIENT_SECRETS_PATH
 
