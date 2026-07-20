@@ -34,6 +34,14 @@ async def lifespan(app: FastAPI):
 	from app.database.sqlite.migrations import run_migrations
 	await run_migrations()
 
+	# Initialize Sandbox Runtime Manager (ensures images and cleans dangling containers)
+	try:
+		from app.runtime.manager import RuntimeManager
+		await RuntimeManager.get_instance().initialize()
+	except Exception as exc:
+		logger = logging.getLogger("openclaw-agent")
+		logger.error(f"Failed to initialize Sandbox Runtime: {exc}")
+
 	# Run Qdrant memory collections initialization on application startup
 	try:
 		from app.database.vector.client import get_qdrant_client
@@ -58,6 +66,14 @@ async def lifespan(app: FastAPI):
 	yield
 
 	await telegram_gateway.shutdown()
+
+	# Shutdown Sandbox Runtime Manager (kills active server runs and releases tunnels)
+	try:
+		from app.runtime.manager import RuntimeManager
+		await RuntimeManager.get_instance().shutdown()
+	except Exception as exc:
+		logger = logging.getLogger("openclaw-agent")
+		logger.error(f"Failed to shutdown Sandbox Runtime: {exc}")
 
 
 app = FastAPI(title="Aether", lifespan=lifespan)

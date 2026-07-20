@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 import asyncio
 import html
 from app.agent import graph
+from app.gateway.telegram.sanitizer import escape_telegram_html
 
 
 class TelegramMessageHandler:
@@ -212,9 +213,9 @@ class TelegramMessageHandler:
 			
 			prompt = (
 				f"⚠️ <b>Dangerous Browser Action Warning!</b>\n\n"
-				f"• <b>Session:</b> <code>{session_name}</code>\n"
-				f"• <b>Action:</b> <code>{action}</code>\n"
-				f"• <b>Reason:</b> {danger_reason}\n\n"
+				f"• <b>Session:</b> <code>{html.escape(session_name)}</code>\n"
+				f"• <b>Action:</b> <code>{html.escape(action)}</code>\n"
+				f"• <b>Reason:</b> {html.escape(danger_reason)}\n\n"
 				f"Do you want to allow this action?"
 			)
 			approval_event.clear()
@@ -265,7 +266,7 @@ class TelegramMessageHandler:
 							final_response = node_output["final_response"]
 
 			# Format final response and tool logs report
-			escaped_resp = final_response or "(No response content returned)"
+			escaped_resp = escape_telegram_html(final_response) if final_response else "(No response content returned)"
 			
 			tool_log = ""
 			if executed_tools:
@@ -279,7 +280,22 @@ class TelegramMessageHandler:
 					tool_log += f"   • Duration: <code>{out['execution_time']:.2f}s</code>\n"
 
 			final_msg = f"{escaped_resp}{tool_log}"
-			await status_message.edit_text(final_msg, parse_mode="HTML")
+			try:
+				await status_message.edit_text(final_msg, parse_mode="HTML")
+			except Exception as html_err:
+				logger.warning("Failed to edit status message with HTML formatting: %s. Falling back to plain text.", html_err)
+				plain_tool_log = ""
+				if executed_tools:
+					plain_tool_log += "\n\n🛠 Tool Executions Log\n"
+					for idx, out in enumerate(executed_tools, start=1):
+						args_str = str(out['args'])
+						if len(args_str) > 150:
+							args_str = args_str[:147] + "..."
+						plain_tool_log += f"{idx}. {out['tool']}\n"
+						plain_tool_log += f"   • Args: {args_str}\n"
+						plain_tool_log += f"   • Duration: {out['execution_time']:.2f}s\n"
+				plain_msg = f"{final_response or '(No response content returned)'}{plain_tool_log}"
+				await status_message.edit_text(plain_msg, parse_mode=None)
 			
 			# Save the finalized state block exactly once on successful execution
 			await conv_manager.save(update.effective_chat.id, state)
@@ -318,7 +334,14 @@ class TelegramMessageHandler:
 			pending[chat_id]["event"].set()
 			
 			decision_text = "✅ Approved" if action == "approve" else "❌ Denied"
-			await query.edit_message_text(
-				text=query.message.text + f"\n\n<b>Decision:</b> {decision_text}",
-				parse_mode="HTML"
-			)
+			try:
+				await query.edit_message_text(
+					text=query.message.text_html + f"\n\n<b>Decision:</b> {decision_text}",
+					parse_mode="HTML"
+				)
+			except Exception as e:
+				logger.warning("Failed to edit callback query message with HTML: %s. Falling back to plain text.", e)
+				await query.edit_message_text(
+					text=query.message.text + f"\n\nDecision: {decision_text}",
+					parse_mode=None
+				)

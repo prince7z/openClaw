@@ -31,6 +31,15 @@ from app.tools.browser import (
 )
 
 from app.tools.memory import retrieve_memory
+from app.tools.sandbox.commands import (
+    execute_python_code,
+    execute_node_code,
+    start_sandbox_server,
+    stop_sandbox_server,
+    get_sandbox_preview,
+    execute_bash_command,
+
+)
 
 tools = [
     retrieve_memory,
@@ -55,6 +64,12 @@ tools = [
     manage_file,
     list_files,
     search_files,
+    execute_bash_command,
+    execute_python_code,
+    execute_node_code,
+    start_sandbox_server,
+    stop_sandbox_server,
+    get_sandbox_preview,
 ]
 
 

@@ -14,7 +14,16 @@ from app.runtime.preview.manager import PreviewManager
 
 logger = logging.getLogger("openclaw-agent")
 
+_instance: Optional['RuntimeManager'] = None
+
 class RuntimeManager:
+    @classmethod
+    def get_instance(cls) -> 'RuntimeManager':
+        global _instance
+        if _instance is None:
+            _instance = cls()
+        return _instance
+
     def __init__(
         self,
         config: Optional[RuntimeConfig] = None,
