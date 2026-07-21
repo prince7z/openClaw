@@ -8,7 +8,12 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
+
+try:
+    from langchain_core.runnables import RunnableConfig
+except ImportError:
+    RunnableConfig = Any  # type: ignore
 
 
 def make_result(success: bool, data: Any = None, error: str | None = None) -> dict[str, Any]:
@@ -16,11 +21,33 @@ def make_result(success: bool, data: Any = None, error: str | None = None) -> di
     return {"success": success, "data": data, "error": error}
 
 
-def to_path(value: str | Path) -> Path:
-    """Convert a user-supplied value to an absolute resolved path.
+def get_session_id(config: Optional[RunnableConfig] = None) -> str:
+    """Extract chat/session ID from LangChain RunnableConfig."""
+    if not config or not isinstance(config, dict):
+        return "default_sandbox_session"
+    configurable = config.get("configurable", {})
+    if not isinstance(configurable, dict):
+        return "default_sandbox_session"
+    thread_id = configurable.get("thread_id", "default_sandbox_session")
+    return str(thread_id).replace("tg-", "")
+
+
+def get_session_workspace(config: Optional[RunnableConfig] = None) -> Path:
+    """Get the resolved host workspace directory for the active session."""
+    from app.runtime.config import RuntimeConfig
+    session_id = get_session_id(config)
+    base_dir = Path(RuntimeConfig().workspace_root).resolve()
+    workspace_path = base_dir / session_id
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    return workspace_path
+
+
+def to_path(value: str | Path, config: Optional[RunnableConfig] = None) -> Path:
+    """Convert a user-supplied value to an absolute resolved path within the session workspace.
 
     Args:
         value: Path-like input supplied to a filesystem tool.
+        config: Optional LangChain RunnableConfig for session context.
 
     Returns:
         A resolved absolute pathlib.Path instance.
@@ -30,7 +57,39 @@ def to_path(value: str | Path) -> Path:
     """
     if not isinstance(value, (str, Path)):
         raise TypeError("path must be a string or Path")
-    return Path(value).expanduser().resolve(strict=False)
+
+    session_workspace = get_session_workspace(config)
+    path_str = str(value).strip()
+
+    # Normalize backslashes to forward slashes for pattern matching
+    normalized = path_str.replace("\\", "/")
+
+    # Check for container path /workspace or workspace/
+    if normalized.startswith("/workspace") or normalized.startswith("workspace/"):
+        rel = re.sub(r"^/?workspace/?", "", normalized)
+        return (session_workspace / rel).resolve(strict=False)
+
+    # Check for /tests/workspace or tests/workspace/
+    if normalized.startswith("/tests/workspace") or normalized.startswith("tests/workspace/"):
+        rel = re.sub(r"^/?tests/workspace/?", "", normalized)
+        return (session_workspace / rel).resolve(strict=False)
+
+    # Check for workspaces/<session_id>
+    session_id = get_session_id(config)
+    if normalized.startswith(f"workspaces/{session_id}") or normalized.startswith(f"/workspaces/{session_id}"):
+        rel = re.sub(rf"^/?workspaces/{re.escape(session_id)}/?", "", normalized)
+        return (session_workspace / rel).resolve(strict=False)
+
+    p = Path(path_str)
+
+    # If it is an explicit absolute path on host OS (e.g., C:\... or D:\...)
+    if p.is_absolute():
+        resolved = p.resolve(strict=False)
+        return resolved
+
+    # Relative paths resolve inside the session workspace
+    return (session_workspace / p).resolve(strict=False)
+
 
 
 def ensure_parent_directory(path: Path) -> None:

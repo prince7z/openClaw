@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from docx import Document
 from ebooklib import epub
 from langchain.tools import tool
+from langchain_core.runnables import RunnableConfig
 from markdownify import markdownify as html_to_markdown
 from openpyxl import load_workbook
 from app.tools.filesystem.supported import SUPPORTED_DOCUMENT_EXTENSIONS, UNSUPPORTED_BINARY_EXTENSIONS
@@ -298,10 +299,15 @@ def _extract_markdown_content(path: Path, encoding: str) -> str:
 
 
 @tool
-def read_file(path: str, encoding: str = "utf-8", max_size_mb: int = 50) -> dict[str, Any]:
+def read_file(
+    path: str,
+    encoding: str = "utf-8",
+    max_size_mb: int = 50,
+    config: RunnableConfig = None
+) -> dict[str, Any]:
     """Read a file."""
     try:
-        target = to_path(path)
+        target = to_path(path, config=config)
         if not target.exists():
             return make_result(False, None, f"Path does not exist: {target}")
         if not target.is_file():
@@ -341,11 +347,12 @@ def write_file(
     path: str,
     content: str,
     mode: Literal["overwrite", "append"] = "overwrite",
-    encoding: str = "utf-8"
+    encoding: str = "utf-8",
+    config: RunnableConfig = None
 ) -> dict[str, Any]:
     """Write or append content to a file."""
     try:
-        target = to_path(path)
+        target = to_path(path, config=config)
         text = validate_text_content(content)
 
         if target.exists() and target.is_dir():
@@ -365,7 +372,7 @@ def write_file(
 
 
 # Internal helper function, not exposed as tool
-def create_file(path: str, exist_ok: bool = False, **kwargs: Any) -> dict[str, Any]:
+def create_file(path: str, exist_ok: bool = False, config: RunnableConfig = None, **kwargs: Any) -> dict[str, Any]:
     """Create an empty file and any necessary parent directories.
 
     Args:
@@ -384,7 +391,7 @@ def create_file(path: str, exist_ok: bool = False, **kwargs: Any) -> dict[str, A
             f"To write content to a file, please use the write_file tool instead."
         )
     try:
-        target = to_path(path)
+        target = to_path(path, config=config)
         if target.exists():
             if target.is_dir():
                 return make_result(False, None, f"Path is a directory: {target}")
@@ -397,3 +404,4 @@ def create_file(path: str, exist_ok: bool = False, **kwargs: Any) -> dict[str, A
         return make_result(True, str(target.resolve(strict=False)), None)
     except Exception as exc:
         return make_result(False, None, str(exc))
+

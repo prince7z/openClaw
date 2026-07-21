@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from langchain.tools import tool
+from langchain_core.runnables import RunnableConfig
 
 from app.tools.filesystem._common import (
     build_tree_node,
@@ -17,7 +18,7 @@ from app.tools.filesystem._common import (
 
 
 # Internal helper function, not exposed as tool
-def tree(path: str = ".", max_depth: int = 3, show_hidden: bool = False) -> dict[str, Any]:
+def tree(path: str = ".", max_depth: int = 3, show_hidden: bool = False, config: RunnableConfig = None) -> dict[str, Any]:
     """Build a nested directory tree.
 
     Args:
@@ -29,7 +30,7 @@ def tree(path: str = ".", max_depth: int = 3, show_hidden: bool = False) -> dict
         A structured JSON tree representation.
     """
     try:
-        root = to_path(path)
+        root = to_path(path, config=config)
         depth = validate_positive_int(max_depth, "max_depth")
         if not root.exists():
             return make_result(False, None, f"Path does not exist: {root}")
@@ -47,14 +48,15 @@ def list_files(
     path: str = ".",
     view: Literal["list", "tree"] = "list",
     recursive: bool = False,
-    pattern: str | None = None
+    pattern: str | None = None,
+    config: RunnableConfig = None
 ) -> dict[str, Any]:
     """List files and directories."""
     try:
         if view == "tree":
-            return tree(path=path, max_depth=3)
+            return tree(path=path, max_depth=3, config=config)
 
-        directory = to_path(path)
+        directory = to_path(path, config=config)
         if not directory.exists():
             return make_result(False, None, f"Path does not exist: {directory}")
         if not directory.is_dir():

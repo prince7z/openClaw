@@ -5,6 +5,7 @@ from typing import Any, Literal
 import re
 
 from langchain.tools import tool
+from langchain_core.runnables import RunnableConfig
 
 from app.tools.filesystem._common import (
     absolute_path_strings,
@@ -27,7 +28,8 @@ def search_files(
     path: str = ".",
     search_type: Literal["name", "content", "glob"] | None = None,
     case_sensitive: bool = False,
-    recursive: bool = True
+    recursive: bool = True,
+    config: RunnableConfig = None
 ) -> dict[str, Any]:
     """Search files."""
     try:
@@ -37,7 +39,7 @@ def search_files(
             else:
                 search_type = "name"
 
-        base = to_path(path)
+        base = to_path(path, config=config)
         if not base.exists():
             return make_result(False, None, f"Path does not exist: {base}")
         if not base.is_dir():

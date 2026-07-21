@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from langchain.tools import tool
+from langchain_core.runnables import RunnableConfig
 from app.tools.filesystem.files import create_file
 
 from app.tools.filesystem._common import (
@@ -16,7 +17,7 @@ from app.tools.filesystem._common import (
 
 
 # Internal helper function, not exposed as tool
-def copy(source: str, destination: str, overwrite: bool = False) -> dict[str, Any]:
+def copy(source: str, destination: str, overwrite: bool = False, config: RunnableConfig = None) -> dict[str, Any]:
     """Copy a file or directory.
 
     Args:
@@ -28,8 +29,8 @@ def copy(source: str, destination: str, overwrite: bool = False) -> dict[str, An
         The absolute destination path.
     """
     try:
-        src = to_path(source)
-        dst = to_path(destination)
+        src = to_path(source, config=config)
+        dst = to_path(destination, config=config)
 
         if not src.exists():
             return make_result(False, None, f"Source does not exist: {src}")
@@ -53,7 +54,7 @@ def copy(source: str, destination: str, overwrite: bool = False) -> dict[str, An
 
 
 # Internal helper function, not exposed as tool
-def move(source: str, destination: str, overwrite: bool = False) -> dict[str, Any]:
+def move(source: str, destination: str, overwrite: bool = False, config: RunnableConfig = None) -> dict[str, Any]:
     """Move a file or directory.
 
     Args:
@@ -65,8 +66,8 @@ def move(source: str, destination: str, overwrite: bool = False) -> dict[str, An
         The absolute destination path.
     """
     try:
-        src = to_path(source)
-        dst = to_path(destination)
+        src = to_path(source, config=config)
+        dst = to_path(destination, config=config)
 
         if not src.exists():
             return make_result(False, None, f"Source does not exist: {src}")
@@ -86,7 +87,7 @@ def move(source: str, destination: str, overwrite: bool = False) -> dict[str, An
 
 
 # Internal helper function, not exposed as tool
-def rename(path: str, new_name: str) -> dict[str, Any]:
+def rename(path: str, new_name: str, config: RunnableConfig = None) -> dict[str, Any]:
     """Rename a file or directory.
 
     Args:
@@ -97,7 +98,7 @@ def rename(path: str, new_name: str) -> dict[str, Any]:
         The absolute renamed path.
     """
     try:
-        target = to_path(path)
+        target = to_path(path, config=config)
         validate_new_name(new_name)
 
         if not target.exists():
@@ -114,7 +115,7 @@ def rename(path: str, new_name: str) -> dict[str, Any]:
 
 
 # Internal helper function, not exposed as tool
-def delete(path: str, recursive: bool = False, trash: bool = False) -> dict[str, Any]:
+def delete(path: str, recursive: bool = False, trash: bool = False, config: RunnableConfig = None) -> dict[str, Any]:
     """Delete a file or directory.
 
     Args:
@@ -125,7 +126,7 @@ def delete(path: str, recursive: bool = False, trash: bool = False) -> dict[str,
         The absolute path that was deleted.
     """
     try:
-        target = to_path(path)
+        target = to_path(path, config=config)
         if not target.exists():
             return make_result(False, None, f"Path does not exist: {target}")
 
@@ -144,7 +145,7 @@ def delete(path: str, recursive: bool = False, trash: bool = False) -> dict[str,
 
 
 # Internal helper function, not exposed as tool
-def create_directory(path: str, parents: bool = True, exist_ok: bool = True) -> dict[str, Any]:
+def create_directory(path: str, parents: bool = True, exist_ok: bool = True, config: RunnableConfig = None) -> dict[str, Any]:
     """Create a directory.
 
     Args:
@@ -156,7 +157,7 @@ def create_directory(path: str, parents: bool = True, exist_ok: bool = True) -> 
         The absolute directory path.
     """
     try:
-        target = to_path(path)
+        target = to_path(path, config=config)
         if target.exists() and not target.is_dir():
             return make_result(False, None, f"Path is a file: {target}")
 
@@ -171,27 +172,28 @@ def manage_file(
     action: Literal["copy", "move", "rename", "delete", "create"],
     path: str,
     target: str | None = None,
-    kind: Literal["file", "directory"] | None = None
+    kind: Literal["file", "directory"] | None = None,
+    config: RunnableConfig = None
 ) -> dict[str, Any]:
     """Manage files and directories."""
     try:
         if action == "copy":
             if not target:
                 return make_result(False, None, "copy action requires a target destination")
-            return copy(source=path, destination=target, overwrite=True)
+            return copy(source=path, destination=target, overwrite=True, config=config)
 
         elif action == "move":
             if not target:
                 return make_result(False, None, "move action requires a target destination")
-            return move(source=path, destination=target, overwrite=True)
+            return move(source=path, destination=target, overwrite=True, config=config)
 
         elif action == "rename":
             if not target:
                 return make_result(False, None, "rename action requires a target new name")
-            return rename(path=path, new_name=target)
+            return rename(path=path, new_name=target, config=config)
 
         elif action == "delete":
-            return delete(path=path, recursive=True)
+            return delete(path=path, recursive=True, config=config)
 
         elif action == "create":
             if kind == "directory":
@@ -203,11 +205,12 @@ def manage_file(
                 is_dir = path.endswith('/') or path.endswith('\\') or not target_path.suffix
 
             if is_dir:
-                return create_directory(path=path, parents=True, exist_ok=True)
+                return create_directory(path=path, parents=True, exist_ok=True, config=config)
             else:
-                return create_file(path=path, exist_ok=True)
+                return create_file(path=path, exist_ok=True, config=config)
 
         else:
             return make_result(False, None, f"Unsupported action: {action}")
     except Exception as exc:
         return make_result(False, None, str(exc))
+
