@@ -108,17 +108,10 @@ class DockerManager:
         logger.info(f"[Docker] Starting detached exec command in {container_id[:12]}: {cmd}")
         loop = asyncio.get_running_loop()
         def do_exec_detached():
-            api_client = self.client.api
-            exec_obj = api_client.exec_create(
-                container=container_id,
-                cmd=cmd,
-                workdir=workdir,
-                stdout=True,
-                stderr=True
-            )
-            exec_id = exec_obj["Id"]
-            api_client.exec_start(exec_id, detach=True)
-            return exec_id
+            container = self.client.containers.get(container_id)
+            res = container.exec_run(cmd, workdir=workdir, detach=True)
+            exec_id = res.output if isinstance(res.output, str) else res.output.decode("utf-8")
+            return exec_id.strip()
         try:
             exec_id = await loop.run_in_executor(None, do_exec_detached)
             logger.info(f"[Docker] Detached exec started. Session ID: {exec_id[:12]}")

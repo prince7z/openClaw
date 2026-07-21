@@ -1,7 +1,9 @@
 import os
+import socket
 import asyncio
 import logging
 from typing import Dict, Optional, Literal
+from datetime import datetime
 from app.runtime.config import RuntimeConfig
 from app.runtime.exceptions import ContainerError, WorkspaceError, OpenClawRuntimeError
 from app.runtime.models import RuntimeSession, RuntimeStatus, CommandResult, ProcessInfo, PreviewInfo
@@ -82,42 +84,47 @@ class RuntimeManager:
     async def create_session(self, session_id: str) -> RuntimeSession:
         """Initialize directory, allocate port, and start the sandbox container."""
         if session_id in self._sessions:
-            return self._sessions[session_id]
+            session = self._sessions[session_id]
+            if session.container_id:
+                try:
+                    status = await self.docker_manager.status(session.container_id)
+                    if status == "running":
+                        session.last_accessed_at = datetime.utcnow()
+                        return session
+                except Exception:
+                    pass
+            await self.destroy_session(session_id, keep_workspace=True)
 
         logger.info(f"Creating runtime session: {session_id}...")
         
         # Ensure image is ready
         await self.image_manager.ensure()
 
-        # Allocate host port
-        host_port = self.network_manager.allocate_port()
+        # Allocate host ports for all standard web ports (8000, 3000, 5173, etc.)
+        docker_ports, port_mappings = self.network_manager.create_session_port_mappings()
+        primary_host_port = port_mappings.get(8000, list(port_mappings.values())[0])
 
         # Create local workspace directory
         workspace_path = await self.workspace_manager.create(session_id)
-
-        # Get port specification
-        port_mapping = self.network_manager.create_port_mapping(
-            host_port=host_port,
-            container_port=8000  # Default server port in config or 8000
-        )
 
         # Spin up container
         container_id = await self.docker_manager.create(
             session_id=session_id,
             workspace_path=str(workspace_path),
-            port_mapping=port_mapping
+            port_mapping=docker_ports
         )
 
         session = RuntimeSession(
             session_id=session_id,
             workspace=workspace_path,
             container_id=container_id,
-            host_port=host_port,
+            host_port=primary_host_port,
+            port_mappings=port_mappings,
             status=RuntimeStatus.RUNNING
         )
         # Store in-memory registry
         self._sessions[session_id] = session
-        logger.info(f"Session {session_id} successfully created. Container: {container_id[:12]}. Port: {host_port}.")
+        logger.info(f"Session {session_id} successfully created. Container: {container_id[:12]}. Ports: {port_mappings}.")
         return session
 
     async def destroy_session(self, session_id: str, keep_workspace: bool = True) -> None:
@@ -170,14 +177,17 @@ class RuntimeManager:
         if not session or not session.container_id:
             raise ContainerError(f"No active container session found for ID: {session_id}")
 
+        session.last_accessed_at = datetime.utcnow()
+
         workdir = self.config.mount_path
         if cwd:
             workdir = os.path.normpath(os.path.join(self.config.mount_path, cwd)).replace("\\", "/")
 
-        final_cmd = command
         if env:
             env_str = " ".join(f'{k}="{v}"' for k, v in env.items())
-            final_cmd = f"sh -c '{env_str} {command}'"
+            final_cmd = ["bash", "-c", f"{env_str} {command}"]
+        else:
+            final_cmd = ["bash", "-c", command]
 
         return await self.docker_manager.exec(
             container_id=session.container_id,
@@ -225,32 +235,55 @@ class RuntimeManager:
         await self.process_manager.stop(self.docker_manager, session.container_id, port)
         session.process = None
 
-    async def get_preview_url(self, session_id: str) -> Optional[str]:
-        """Start ngrok preview or fetch active preview url."""
+    async def get_preview_url(self, session_id: str, port: int = 8000) -> Optional[str]:
+        """Start ngrok preview or fetch active preview url for specified container port."""
         session = self._sessions.get(session_id)
         if not session or not session.container_id:
             return None
 
-        # Find allocated host port mapping
-        client = self.docker_manager.client
-        container_name = f"openclaw-session-{session_id}"
-        try:
-            container = client.containers.get(container_name)
-            ports = container.ports or {}
-            # Find bound host port for 8000/tcp
-            host_bindings = ports.get("8000/tcp")
-            if not host_bindings:
-                return None
-            host_port = int(host_bindings[0]["HostPort"])
-        except Exception:
+        # Look up mapped host port for container port
+        host_port = session.port_mappings.get(port, session.host_port)
+        if not host_port:
             return None
 
         preview_info = self.preview_manager.info()
-        if not preview_info:
+        if not preview_info or preview_info.host_port != host_port:
             preview_info = await self.preview_manager.start(host_port)
         
         session.preview = preview_info
         return preview_info.url
+
+    async def wait_for_server_ready(self, session_id: str, port: int = 8000, timeout: int = 60) -> bool:
+        """Poll host port until TCP/socket connections succeed, verifying web server readiness."""
+        session = self._sessions.get(session_id)
+        if not session:
+            return False
+
+        host_port = session.port_mappings.get(port, session.host_port)
+        if not host_port:
+            return False
+
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+
+        def check_socket():
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1.5)
+                    return s.connect_ex(("127.0.0.1", host_port)) == 0
+            except Exception:
+                return False
+
+        while loop.time() - start_time < timeout:
+            is_ready = await loop.run_in_executor(None, check_socket)
+            if is_ready:
+                await asyncio.sleep(1)  # Buffer to allow app listener initialization
+                logger.info(f"[Runtime] Web server on container port {port} (host port {host_port}) verified ready!")
+                return True
+            await asyncio.sleep(1)
+
+        logger.warning(f"[Runtime] Server readiness polling timed out after {timeout}s on port {port} (host port {host_port})")
+        return False
 
     async def status(self, session_id: str) -> RuntimeSession:
         """Poll container and background process status details."""
@@ -277,3 +310,21 @@ class RuntimeManager:
         # Sync preview url details
         session.preview = self.preview_manager.info()
         return session
+
+    async def cleanup_idle_sessions(self) -> int:
+        """Stop container sessions that have exceeded the idle timeout while preserving workspace files on disk."""
+        now = datetime.utcnow()
+        idle_timeout = self.config.session_idle_timeout
+        cleaned = 0
+
+        for session_id, session in list(self._sessions.items()):
+            idle_seconds = (now - session.last_accessed_at).total_seconds()
+            if idle_seconds > idle_timeout:
+                logger.info(f"[Runtime] Session {session_id} idle for {int(idle_seconds)}s (limit: {idle_timeout}s). Cleaning up container while keeping workspace...")
+                try:
+                    await self.destroy_session(session_id, keep_workspace=True)
+                    cleaned += 1
+                except Exception as e:
+                    logger.error(f"[Runtime] Error cleaning idle session {session_id}: {e}")
+
+        return cleaned

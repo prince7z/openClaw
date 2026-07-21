@@ -19,12 +19,17 @@ if env_path.exists():
             import os
             os.environ[key.strip()] = val
 
-from app.tools.filesystem import (  # noqa: E402
-    read_file,
-    write_file,
-    manage_file,
-    list_files,
-    search_files,
+from app.tools.sandbox.commands import (  # noqa: E402
+    execute_bash_command,
+    execute_python_code,
+    execute_node_code,
+    start_sandbox_server,
+    stop_sandbox_server,
+    get_sandbox_preview,
 )
-from app.tools.search import web_search
-print (web_search.invoke({"query": "prince sahu software engineer and freelancer", "top_k": 10, "max_results": 3}))
+
+#print(execute_bash_command.invoke({"command": "mkdir mydir ; ls"}))
+
+print(execute_node_code.invoke({"code": "console.log('hello from node')"}))
+
+

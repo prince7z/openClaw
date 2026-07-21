@@ -37,9 +37,11 @@ class RuntimeSession:
     workspace: Path
     container_id: Optional[str] = None
     host_port: Optional[int] = None
+    port_mappings: Dict[int, int] = field(default_factory=dict)
     status: RuntimeStatus = RuntimeStatus.STOPPED
     process: Optional[ProcessInfo] = None
     preview: Optional[PreviewInfo] = None
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
+    last_accessed_at: datetime = field(default_factory=datetime.utcnow)
     metadata: Dict[str, Any] = field(default_factory=dict)

@@ -22,7 +22,15 @@ class NgrokProvider(PreviewProvider):
             
             loop = asyncio.get_running_loop()
             def connect_tunnel():
-                return ngrok.connect(port, "http")
+                try:
+                    for t in ngrok.get_tunnels():
+                        try:
+                            ngrok.disconnect(t.public_url)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return ngrok.connect(f"127.0.0.1:{port}", "http")
 
             self.tunnel = await loop.run_in_executor(None, connect_tunnel)
             logger.info(f"[Ngrok] Tunnel created successfully: {self.tunnel.public_url}")
@@ -41,10 +49,18 @@ class NgrokProvider(PreviewProvider):
             logger.info(f"[Ngrok] Disconnecting tunnel {self.tunnel.public_url}")
             try:
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, ngrok.disconnect, self.tunnel.public_url)
+                def do_stop():
+                    try:
+                        ngrok.disconnect(self.tunnel.public_url)
+                    except Exception:
+                        pass
+                    try:
+                        ngrok.kill()
+                    except Exception:
+                        pass
+                await loop.run_in_executor(None, do_stop)
             except Exception as e:
                 logger.warning(f"[Ngrok] Error disconnecting tunnel: {e}")
-                pass
             self.tunnel = None
 
     def url(self) -> Optional[str]:

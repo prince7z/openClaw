@@ -31,3 +31,7 @@ credentials.json
 metadata.json
 token.json
 client_secret.json
+
+node_modules/
+dist/
+build/

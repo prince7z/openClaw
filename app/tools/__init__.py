@@ -44,6 +44,12 @@ from app.tools.sandbox.commands import (
 tools = [
     retrieve_memory,
     web_search,
+    execute_bash_command,
+    execute_python_code,
+    execute_node_code,
+    start_sandbox_server,
+    stop_sandbox_server,
+    get_sandbox_preview,
     gmail_search,
     gmail_read,
     gmail_send,
@@ -64,12 +70,7 @@ tools = [
     manage_file,
     list_files,
     search_files,
-    execute_bash_command,
-    execute_python_code,
-    execute_node_code,
-    start_sandbox_server,
-    stop_sandbox_server,
-    get_sandbox_preview,
+
 ]
 
 
