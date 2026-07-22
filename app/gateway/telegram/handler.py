@@ -16,6 +16,33 @@ from app.agent import graph
 from app.gateway.telegram.sanitizer import escape_telegram_html
 
 
+def split_message(text: str, max_length: int = 4096) -> list[str]:
+	"""
+	Splits a message into chunks of up to max_length characters.
+	Tries to split at newlines or spaces to avoid cutting words/sentences in half.
+	"""
+	if len(text) <= max_length:
+		return [text]
+	
+	chunks = []
+	text_to_chunk = text
+	while text_to_chunk:
+		if len(text_to_chunk) <= max_length:
+			chunks.append(text_to_chunk)
+			break
+		
+		# Try to split at a newline near max_length
+		split_idx = text_to_chunk.rfind('\n', 0, max_length)
+		if split_idx <= 0 or split_idx < max_length * 0.7:  # If no newline or too far back, try space
+			split_idx = text_to_chunk.rfind(' ', 0, max_length)
+		if split_idx <= 0 or split_idx < max_length * 0.7:  # If still no space or too far back, hard split
+			split_idx = max_length
+			
+		chunks.append(text_to_chunk[:split_idx].rstrip())
+		text_to_chunk = text_to_chunk[split_idx:].lstrip()
+	return chunks
+
+
 class TelegramMessageHandler:
 	async def handle_message(
 		self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -295,17 +322,35 @@ class TelegramMessageHandler:
 						plain_tool_log += f"   • Args: {args_str}\n"
 						plain_tool_log += f"   • Duration: {out['execution_time']:.2f}s\n"
 				plain_msg = f"{final_response or '(No response content returned)'}{plain_tool_log}"
-				await status_message.edit_text(plain_msg, parse_mode=None)
+				
+				# Handle message chunking if it exceeds Telegram's limit (4096 characters)
+				chunks = split_message(plain_msg)
+				try:
+					await status_message.edit_text(chunks[0], parse_mode=None)
+				except Exception as edit_err:
+					logger.error("Failed to edit status message with plain text chunk: %s", edit_err)
+				
+				for chunk in chunks[1:]:
+					try:
+						await message.reply_text(chunk, parse_mode=None)
+					except Exception as send_err:
+						logger.error("Failed to send message chunk: %s", send_err)
 			
 			# Save the finalized state block exactly once on successful execution
 			await conv_manager.save(update.effective_chat.id, state)
 			
 		except Exception as exc:
 			logger.exception("Error during Telegram agent execution:")
-			await status_message.edit_text(
-				f"❌ <b>An error occurred while running the pipeline:</b>\n<code>{html.escape(str(exc))}</code>",
-				parse_mode="HTML"
-			)
+			exc_str = str(exc)
+			if len(exc_str) > 3500:
+				exc_str = exc_str[:3400] + "... [TRUNCATED]"
+			try:
+				await status_message.edit_text(
+					f"❌ <b>An error occurred while running the pipeline:</b>\n<code>{html.escape(exc_str)}</code>",
+					parse_mode="HTML"
+				)
+			except Exception as edit_err:
+				logger.error("Failed to update status message with error context: %s", edit_err)
 		finally:
 			register_approval_callback(None)
 			bot_data["pending_approvals"].pop(chat_id, None)
