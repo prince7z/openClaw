@@ -30,7 +30,24 @@ class NgrokProvider(PreviewProvider):
                             pass
                 except Exception:
                     pass
-                return ngrok.connect(f"127.0.0.1:{port}", "http")
+                try:
+                    return ngrok.connect(f"127.0.0.1:{port}", "http", host_header="rewrite")
+                except Exception as err:
+                    err_str = str(err)
+                    if "ERR_NGROK_334" in err_str or "already online" in err_str:
+                        logger.warning("[Ngrok] Static endpoint conflict (ERR_NGROK_334). Killing stale local ngrok processes and retrying...")
+                        try:
+                            import subprocess
+                            if os.name == 'nt':
+                                subprocess.run(["taskkill", "/F", "/IM", "ngrok.exe"], capture_output=True)
+                            else:
+                                subprocess.run(["pkill", "-f", "ngrok"], capture_output=True)
+                        except Exception:
+                            pass
+                        import time
+                        time.sleep(3)
+                        return ngrok.connect(f"127.0.0.1:{port}", "http", host_header="rewrite")
+                    raise
 
             self.tunnel = await loop.run_in_executor(None, connect_tunnel)
             logger.info(f"[Ngrok] Tunnel created successfully: {self.tunnel.public_url}")

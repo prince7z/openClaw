@@ -31,28 +31,64 @@ class DockerManager:
             try:
                 existing = self.client.containers.get(container_name)
                 logger.info(f"[Docker] Removing pre-existing container for session {session_id}")
-                existing.remove(force=True)
+                try:
+                    existing.remove(force=True)
+                except Exception as rem_err:
+                    logger.warning(f"[Docker] Notice during pre-existing container removal: {rem_err}")
+                    import time
+                    time.sleep(1.5)
             except docker.errors.NotFound:
                 pass
 
             logger.info(f"[Docker] Launching container '{container_name}' (port mapping: {port_mapping})")
-            container = self.client.containers.run(
-                image=image_tag,
-                name=container_name,
-                command="tail -f /dev/null",
-                volumes={
-                    abs_workspace_path: {
-                        "bind": self.config.mount_path,
-                        "mode": "rw"
-                    }
-                },
-                ports=port_mapping,
-                mem_limit=self.config.memory_limit,
-                nano_cpus=int(self.config.cpu_limit * 1e9),
-                network_mode=self.config.network_mode,
-                detach=True,
-                working_dir=self.config.mount_path
-            )
+            try:
+                container = self.client.containers.run(
+                    image=image_tag,
+                    name=container_name,
+                    command="tail -f /dev/null",
+                    volumes={
+                        abs_workspace_path: {
+                            "bind": self.config.mount_path,
+                            "mode": "rw"
+                        }
+                    },
+                    ports=port_mapping,
+                    mem_limit=self.config.memory_limit,
+                    nano_cpus=int(self.config.cpu_limit * 1e9),
+                    network_mode=self.config.network_mode,
+                    detach=True,
+                    working_dir=self.config.mount_path
+                )
+            except docker.errors.APIError as run_err:
+                if "409" in str(run_err) or "Conflict" in str(run_err) or "already in use" in str(run_err):
+                    logger.warning(f"[Docker] Container creation conflict detected ({run_err}). Retrying after cleanup...")
+                    import time
+                    time.sleep(2)
+                    try:
+                        ex = self.client.containers.get(container_name)
+                        ex.remove(force=True)
+                    except Exception:
+                        pass
+                    time.sleep(1)
+                    container = self.client.containers.run(
+                        image=image_tag,
+                        name=container_name,
+                        command="tail -f /dev/null",
+                        volumes={
+                            abs_workspace_path: {
+                                "bind": self.config.mount_path,
+                                "mode": "rw"
+                            }
+                        },
+                        ports=port_mapping,
+                        mem_limit=self.config.memory_limit,
+                        nano_cpus=int(self.config.cpu_limit * 1e9),
+                        network_mode=self.config.network_mode,
+                        detach=True,
+                        working_dir=self.config.mount_path
+                    )
+                else:
+                    raise
             return container.id
 
         try:

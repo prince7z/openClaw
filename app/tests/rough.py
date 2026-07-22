@@ -30,6 +30,24 @@ from app.tools.sandbox.commands import (  # noqa: E402
 
 #print(execute_bash_command.invoke({"command": "mkdir mydir ; ls"}))
 
-print(execute_node_code.invoke({"code": "console.log('hello from node')"}))
+config = {"configurable": {"thread_id": "tg-1833617010"}}
 
+print("Stopping any existing server on port 3000...")
+print(stop_sandbox_server.invoke({'port': 3000}, config=config))
 
+print("Starting server on port 3000...")
+print(start_sandbox_server.invoke({'get_preview': True, 'port': 3000, 'command': 'cd /workspace/react-app && npm start'}, config=config))
+
+import time
+print("Starting server on port 3000...")
+print(start_sandbox_server.invoke({'get_preview': True, 'port': 3000, 'command': 'cd /workspace/react-app && npm start'}, config=config))
+print("Waiting 15s for React dev server to finish compiling...")
+time.sleep(15)
+import requests
+# Include the Ngrok-Skip-Browser-Warning header so ngrok bypasses its free-tier warning page
+headers = {"Ngrok-Skip-Browser-Warning": "true"}
+response = requests.get('https://nonadeptly-subconsular-verdie.ngrok-free.dev', headers=headers, verify=False)
+print("Preview Response:", response)
+print("Status Code:", response.status_code)
+print("Keeping the script alive for 300 seconds so ngrok stays online...")
+time.sleep(300)
